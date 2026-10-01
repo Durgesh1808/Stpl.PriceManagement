@@ -1,0 +1,72 @@
+@model NotificationsViewModel
+@{
+    ViewData["Title"] = "Notifications";
+    ViewData["Crumbs"] = Model.Crumbs;
+}
+
+<div class="page-head">
+    <div>
+        <h1 class="page-title">Notifications</h1>
+        <div class="page-sub">
+            @(Model.Items.Count == 0
+                ? "Nothing yet."
+                : Model.Unread == 0
+                    ? Model.Items.Count + " notification" + (Model.Items.Count == 1 ? "" : "s") + " · all read"
+                    : Model.Unread + " unread of " + Model.Items.Count)
+        </div>
+    </div>
+
+    @if (Model.Unread > 0)
+    {
+        @* Only when there is something to clear. A permanently visible
+           "mark all read" on an empty list is a control that does nothing. *@
+        <form method="post" asp-action="ReadAll">
+            <button type="submit" class="btn btn--sm" data-busy="Clearing…">
+                <st-icon name="check" class="icon--14" /> Mark all read
+            </button>
+        </form>
+    }
+</div>
+
+<div class="card">
+    @if (Model.Items.Count == 0)
+    {
+        <div class="empty">
+            Nothing has happened to you yet. Fares arriving, a fare sent back,
+            a change request submitted or going live — they all land here.
+        </div>
+    }
+    else
+    {
+        @foreach (var item in Model.Items)
+        {
+            @* The whole row is the button. A notification has one thing you
+               can do with it, so anything smaller than the row is a target to
+               aim at for no reason - and a form rather than a link because
+               following one marks it read, which is a change. *@
+            <form method="post" asp-action="Read" asp-route-id="@item.NotificationId"
+                  class="note-row @(item.IsRead ? "note-row--read" : "")">
+                <button type="submit" class="note-row__hit">
+                    <span class="note-row__dot @(item.IsRead ? "" : "note-row__dot--unread")"
+                          aria-hidden="true"></span>
+
+                    <span class="note-row__text">
+                        <span class="note-row__subject">@item.Subject</span>
+                        <span class="note-row__body">@item.Body</span>
+                    </span>
+
+                    <span class="note-row__meta">
+                        @if (!string.IsNullOrEmpty(item.TourCode))
+                        {
+                            <span class="chip chip--code">@item.TourCode</span>
+                        }
+                        <span class="note-row__when"
+                              title="@item.CreatedUtc.ToString("dd MMM yyyy HH:mm") UTC">
+                            @Model.Ago(item.CreatedUtc)
+                        </span>
+                    </span>
+                </button>
+            </form>
+        }
+    }
+</div>

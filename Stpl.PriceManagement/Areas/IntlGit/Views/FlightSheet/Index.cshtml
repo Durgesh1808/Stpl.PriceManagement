@@ -1,0 +1,276 @@
+@model FlightSheetViewModel
+@{
+    var sheet = Model.Sheet;
+    ViewData["Title"] = sheet.TourCode + " airfare summary";
+
+    var columns = sheet.Columns;
+    var hidden = Model.HiddenByFilter;
+}
+
+@section TopBarActions {
+    <div class="topbar__actions">
+        <a class="linkbtn" href="/IntlGit/Revision?code=@sheet.TourCode">
+            <st-icon name="chevron-left" class="icon--14" /> Back to the tour
+        </a>
+
+        <a class="linkbtn" href="/IntlGit/Products">
+            <st-icon name="chevron-left" class="icon--14" /> Back to products
+        </a>
+    </div>
+}
+
+<div class="page-head">
+    <div>
+        <h1 class="page-title">
+            <span class="chip chip--code-lg">@sheet.TourCode</span>
+            Airfare summary
+        </h1>
+        <p class="page-sub">
+            @sheet.TourName · @sheet.Region ·
+            @columns.Count @(columns.Count == 1 ? "column" : "columns")
+        </p>
+    </div>
+
+    @* The one filter worth having. A season of hand-overs mostly repeats
+       itself, and the question is nearly always "what moved". *@
+    @if (columns.Count > 1)
+    {
+        <div class="topbar__actions">
+            @if (Model.ChangedOnly)
+            {
+                <a class="btn btn--sm" href="/IntlGit/FlightSheet?code=@sheet.TourCode">
+                    Show every departure
+                </a>
+            }
+            else
+            {
+                <a class="btn btn--sm" href="/IntlGit/FlightSheet?code=@sheet.TourCode&changedOnly=true">
+                    <st-icon name="swap" class="icon--14" /> Only what changed
+                </a>
+            }
+        </div>
+    }
+</div>
+
+<div class="banner banner--info">
+    <st-icon name="plane" class="icon--14" />
+    <span>
+        What air-ticketing has sent, hand-over by hand-over — the three fares and
+        the flight details. Selling prices are not here; they move for reasons of
+        their own. Nothing on this page can be edited.
+    </span>
+</div>
+
+@if (Model.ChangedOnly && hidden > 0)
+{
+    <div class="banner">
+        <st-icon name="info" class="icon--14" />
+        <span>
+            Showing only departures whose fares have moved.
+            @hidden @(hidden == 1 ? "departure is" : "departures are") hidden.
+        </span>
+    </div>
+}
+
+@if (columns.Count == 0)
+{
+    <div class="card card--spaced">
+        <div class="card__head">
+            <span class="card__title">Nothing sent yet</span>
+        </div>
+        <div class="vsnap__body">
+            <p class="muted">
+                Air-ticketing has not submitted fares for @sheet.TourCode. The first
+                hand-over becomes the first column here.
+            </p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card card--spaced">
+        <div class="scroller">
+            <table class="fsheet">
+                <thead>
+                    @* Two header rows: the hand-over above, the three fares and
+                       the flight note beneath it. *@
+                    <tr>
+                        <th class="fsheet__corner" rowspan="2">Hub / departure</th>
+                        @foreach (var column in columns)
+                        {
+                            <th class="fsheet__colhead @(column.IsSubmitted ? "" : "fsheet__colhead--live")"
+                                colspan="4">
+                                @if (column.IsSubmitted)
+                                {
+                                    <span class="fsheet__when">
+                                        @DepartureDateFormat.Short(column.SubmittedUtc.Value.ToLocalTime())
+                                    </span>
+                                    <span class="chip chip--ok fsheet__state">Final</span>
+                                }
+                                else
+                                {
+                                    <span class="fsheet__when">Not sent yet</span>
+                                    <span class="chip chip--warn fsheet__state">In progress</span>
+                                }
+
+                                @if (column.IsSubmitted && !string.IsNullOrWhiteSpace(column.SubmittedBy))
+                                {
+                                    <span class="fsheet__by">@column.SubmittedBy</span>
+                                }
+                            </th>
+                        }
+                    </tr>
+                    <tr>
+                        @foreach (var column in columns)
+                        {
+                            <th class="fsheet__sub">Flight details</th>
+                            <th class="fsheet__sub cell--r">A + TM</th>
+                            <th class="fsheet__sub cell--r">Child</th>
+                            <th class="fsheet__sub cell--r">Infant</th>
+                        }
+                    </tr>
+                </thead>
+
+                <tbody>
+                @foreach (var hub in sheet.Hubs)
+                {
+                    var departures = Model.ChangedOnly
+                        ? hub.Departures.Where(d => d.HasMoved).ToList()
+                        : hub.Departures.ToList();
+
+                    if (departures.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    <tr class="fsheet__hubrow">
+                        @* The cell spans the whole table, so pinning the CELL
+                           would pin a box far wider than the screen and the
+                           text would still scroll away. The label inside it is
+                           what sticks. *@
+                        <th class="fsheet__hub" colspan="@(1 + columns.Count * 4)">
+                            <span class="fsheet__hublabel">
+                                @hub.Name
+                                <span class="fsheet__hubcount">
+                                    @departures.Count @(departures.Count == 1 ? "departure" : "departures")
+                                </span>
+                            </span>
+                        </th>
+                    </tr>
+
+                    @foreach (var departure in departures)
+                    {
+                        <tr class="@(departure.IsWithdrawn ? "fsheet__row--withdrawn" : "")">
+                            <td class="fsheet__date num">
+                                @DepartureDateFormat.Short(departure.Date)
+
+                                @* Withdrawn dates keep their line. The fares
+                                   still happened, and removing the row would
+                                   make the history look as though they had
+                                   not. *@
+                                @if (departure.IsWithdrawn)
+                                {
+                                    <span class="fsheet__flag fsheet__flag--off"
+                                          title="Taken off the website — its earlier fares are still on record">withdrawn</span>
+                                }
+                                else if (departure.IsNew)
+                                {
+                                    <span class="fsheet__flag fsheet__flag--new"
+                                          title="Added after the first hand-over on this sheet">added</span>
+                                }
+
+                                @if (departure.HasMoved)
+                                {
+                                    <span class="fsheet__moved" title="A fare on this date has changed across the season">moved</span>
+                                }
+                            </td>
+
+                            @foreach (var cell in departure.Cells)
+                            {
+                                if (!cell.IsPresent)
+                                {
+                                    @* Not on the tour at that hand-over. An empty
+                                       span, not zeroes - a different fact. *@
+                                    <td class="fsheet__absent" colspan="4">not on the tour</td>
+                                    continue;
+                                }
+
+                                @* An info button rather than the text. Flight
+                                   details run to several lines, and a season
+                                   of columns each showing a paragraph would
+                                   make the sheet unreadable. One button per
+                                   departure per hand-over; the text opens
+                                   where you click it. *@
+                                <td class="fsheet__flight">
+                                    @if (string.IsNullOrWhiteSpace(cell.FlightDetails))
+                                    {
+                                        <span class="fsheet__none" title="Nothing recorded for this hand-over">—</span>
+                                    }
+                                    else
+                                    {
+                                        var colLabel = cell.SubmissionId == 0
+                                            ? "not sent yet"
+                                            : DepartureDateFormat.Short(
+                                                columns.First(c => c.SubmissionId == cell.SubmissionId)
+                                                       .SubmittedUtc.Value.ToLocalTime());
+
+                                        <details class="rowmenu fsheet__info">
+                                            <summary class="fsheet__infobtn" title="Flight details">
+                                                <st-icon name="info" class="icon--14" />
+                                            </summary>
+                                            <div class="rowmenu__pop fsheet__infopop">
+                                                <div class="queryform__title">Flight details</div>
+                                                <div class="queryform__sub">
+                                                    @hub.Name · @DepartureDateFormat.Short(departure.Date) · @colLabel
+                                                </div>
+                                                <p class="fsheet__infotext">@cell.FlightDetails</p>
+                                            </div>
+                                        </details>
+                                    }
+                                </td>
+
+                                @* The figure, and under it how far it moved
+                                   from the column before. The percentage is
+                                   the thing you scan for - 56,000 means
+                                   nothing on its own, "+65%" means a great
+                                   deal. *@
+                                @foreach (var band in new[] { "adult", "child", "infant" })
+                                {
+                                    var amount = band == "adult" ? cell.Adult
+                                               : band == "child" ? cell.Child
+                                               : cell.Infant;
+                                    var moved = band == "adult" ? cell.AdultChangePercent
+                                              : band == "child" ? cell.ChildChangePercent
+                                              : cell.InfantChangePercent;
+
+                                    <td class="fsheet__fare cell--r num @(cell.Changed ? "fsheet__fare--changed" : "")">
+                                        @(amount.HasValue ? Inr.Format(amount.Value) : "—")
+                                        @if (moved.HasValue)
+                                        {
+                                            <span class="fsheet__pct @(moved.Value > 0 ? "fsheet__pct--up" : "fsheet__pct--down")"
+                                                  title="@(moved.Value > 0 ? "Up" : "Down") from the previous hand-over">
+                                                @(moved.Value > 0 ? "+" : "")@moved.Value.ToString("0.#")%
+                                            </span>
+                                        }
+                                    </td>
+                                }
+                            }
+                        </tr>
+                    }
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @* Flight details only exist from the moment the field did. Saying so beats
+       a column of dashes that reads as "air-ticketing left it blank". *@
+    @if (sheet.Hubs.Any(h => h.Departures.Any(d => d.Cells.Any(c => c.IsPresent && c.FlightDetails == null))))
+    {
+        <p class="muted--sm" style="color:var(--ink-muted-3); margin-top:-6px;">
+            Flight details are recorded from the hand-over at which air-ticketing
+            first entered them. Earlier columns show a dash because nothing was
+            ever written down, not because it was left blank.
+        </p>
+    }
+}

@@ -1,0 +1,184 @@
+@model ChangeSetsIndexViewModel
+@{
+    ViewData["Title"] = Model.IsTechSupport ? "Website updates" : "Change sets";
+    ViewData["Crumbs"] = Model.Crumbs;
+}
+
+<div class="page-head">
+    <div>
+        <h1 class="page-title">
+            @(Model.IsTechSupport ? "Website price updates" : "Change sets")
+        </h1>
+        <div class="page-sub">
+            @* Counts what is on screen, then what the filter is hiding, so the
+               number never disagrees with the rows underneath it. *@
+            @(Model.Sets.Count + (Model.Sets.Count == 1 ? " change set" : " change sets"))
+            @if (Model.Sets.Count != Model.TotalBeforeSearch)
+            {
+                <text> of @Model.TotalBeforeSearch</text>
+            }
+            @if (Model.IsTechSupport)
+            {
+                <text> · click any heading to re-sort</text>
+            }
+            else if (Model.OpenCount > 0)
+            {
+                <text> · @Model.OpenCount still being applied by tech support</text>
+            }
+        </div>
+    </div>
+
+</div>
+
+@* One list with a filter, rather than two buttons that looked like two
+   different screens. Everything is a GET form, so it works with no script. *@
+<form method="get" class="filterbar" role="search">
+    <div class="filterbar__search">
+        <st-icon name="search" class="icon--16 filterbar__searchicon" />
+        <input class="field field--search" type="search" name="search"
+               value="@Model.Search"
+               placeholder="Search change set, tour code or name"
+               aria-label="Search change sets" />
+    </div>
+
+    <label class="filterbar__select">
+        <span class="filterbar__caption">Show</span>
+        @* EffectiveShow, not Show: nobody having chosen means something
+           different to tech support than to the product team. *@
+        <select class="field" name="show" data-autosubmit>
+            <option value="open" selected="@(Model.EffectiveShow == "open")">
+                Still to apply
+            </option>
+            <option value="applied" selected="@(Model.EffectiveShow == "applied")">Applied</option>
+            <option value="all" selected="@(Model.EffectiveShow == "all")">All</option>
+        </select>
+    </label>
+
+    @if (Model.SortBy != "submitted")
+    {
+        <input type="hidden" name="sortBy" value="@Model.SortBy" />
+    }
+    @if (!Model.Ascending)
+    {
+        <input type="hidden" name="ascending" value="false" />
+    }
+
+    <button type="submit" class="btn btn--sm filterbar__apply">Apply</button>
+
+    @if (Model.HasFilters)
+    {
+        <a class="linkbtn linkbtn--sm" href="/IntlGit/ChangeSets">Clear filters</a>
+    }
+</form>
+
+@if (Model.IsTechSupport && Model.Nearest != null)
+{
+    <div class="banner banner--alert">
+        <span class="banner__dot" aria-hidden="true"></span>
+        <span>
+            @* Longest waiting, not most urgent. There is no effective date any
+               more, so "what has been sitting here longest" is the question the
+               list can actually answer. *@
+            @Model.OpenCount @(Model.OpenCount == 1 ? "change set" : "change sets") to apply ·
+            longest waiting is <strong>@Model.Nearest.Reference</strong>, sent
+            @DepartureDateFormat.Short(Model.Nearest.SubmittedUtc.ToLocalTime())
+        </span>
+    </div>
+}
+
+<div class="card scroller">
+    <div class="grid grid--head worklist__row">
+        <a class="sortable @(Model.SortBy == "reference" ? "sortable--active" : "")"
+           href="@Model.SortUrl("reference")">
+            <span>Change set</span><span class="sortable__arrow">@if (Model.SortIcon("reference") != null) { <st-icon name="@Model.SortIcon("reference")" class="icon--12" /> }</span>
+        </a>
+        <a class="sortable @(Model.SortBy == "tour" ? "sortable--active" : "")"
+           href="@Model.SortUrl("tour")">
+            <span>Product</span><span class="sortable__arrow">@if (Model.SortIcon("tour") != null) { <st-icon name="@Model.SortIcon("tour")" class="icon--12" /> }</span>
+        </a>
+        <a class="sortable @(Model.SortBy == "submitted" ? "sortable--active" : "")"
+           href="@Model.SortUrl("submitted")">
+            <span>Submitted</span><span class="sortable__arrow">@if (Model.SortIcon("submitted") != null) { <st-icon name="@Model.SortIcon("submitted")" class="icon--12" /> }</span>
+        </a>
+        <div class="cell--head cell--r">Changes</div>
+        <a class="sortable @(Model.SortBy == "progress" ? "sortable--active" : "")"
+           href="@Model.SortUrl("progress")">
+            <span>Status</span><span class="sortable__arrow">@if (Model.SortIcon("progress") != null) { <st-icon name="@Model.SortIcon("progress")" class="icon--12" /> }</span>
+        </a>
+        @* Six cells here, six in the row loop below, six tracks in
+           .worklist__row. Get one of the three out of step and the grid wraps
+           onto a phantom row without complaining. *@
+        <div class="cell--pad cell--r">Action</div>
+    </div>
+
+    <div class="rows">
+    @foreach (var set in Model.Sets)
+    {
+        var state = Model.StateOf(set);
+
+        <div class="grid worklist__row">
+            <div class="worklist__id">
+                @if (state == ChangeSetState.NotStarted)
+                {
+                    <span class="worklist__new" title="Nothing applied yet" aria-hidden="true"></span>
+                }
+                <span>@set.Reference</span>
+            </div>
+
+            <div class="cell" style="min-width:0;">
+                <div style="color:var(--ink-heading);">@set.TourName</div>
+                <div class="muted--sm num" style="color:var(--ink-muted);">@set.TourCode</div>
+            </div>
+
+            @* Captioned for the phone layout, where the column headings are
+               gone and a date and a bare count would sit unexplained under the
+               reference. The progress line below says "N of M updated" in
+               words already, so it needs none. *@
+            <div class="cell num" data-label="Submitted" style="color:var(--ink-muted);">
+                @DepartureDateFormat.Short(set.SubmittedUtc.ToLocalTime())
+            </div>
+
+            <div class="cell cell--r num" data-label="Changes">@set.TotalRows</div>
+
+            <div style="padding:9px 10px;">
+                <span class="chip @StatusChips.For(state)">
+                    @ChangeSetStates.Label(state)
+                </span>
+                <div class="worklist__progress">@set.CompletedRows of @set.TotalRows updated</div>
+            </div>
+
+            @* No HTML column here. One table prices one hub on one date, so
+               there is no such thing as the markup for a change set - only the
+               markup for each departure in it. A column that could only ever
+               link through was a second Open button wearing another name. *@
+            <div class="cell cell--pad cell--r">
+                <a class="linkbtn" href="/IntlGit/ChangeSets/Detail?reference=@set.Reference">
+                    Open <st-icon name="arrow-right" class="icon--14" />
+                </a>
+            </div>
+        </div>
+    }
+    </div>
+
+    @if (Model.Sets.Count == 0)
+    {
+        <div class="empty">
+            @if (!string.IsNullOrWhiteSpace(Model.Search))
+            {
+                <text>No change set matches “@Model.Search”.</text>
+            }
+            else if (Model.EffectiveShow == "applied")
+            {
+                <text>Nothing applied yet.</text>
+            }
+            else if (Model.EffectiveShow == "all")
+            {
+                <text>No change sets yet. Submitted sets appear here.</text>
+            }
+            else
+            {
+                <text>Nothing to apply. Every submitted set is on the website.</text>
+            }
+        </div>
+    }
+</div>

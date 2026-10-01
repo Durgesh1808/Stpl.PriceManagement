@@ -1,0 +1,455 @@
+@model ChangeSetDetailViewModel
+@inject CurrentUser Me
+@{
+    var set = Model.ChangeSet;
+    var summary = set.Summary;
+    var state = Model.State;
+    var columns = Model.Columns;
+
+    ViewData["Title"] = summary.Reference;
+    ViewData["Crumbs"] = Model.Crumbs;
+
+    @* Half-up, like every other rounding here: .NET's default sends a midpoint
+       to the nearest EVEN number, so 77 of 200 rows would report 38% rather
+       than 39%. See docs/handover/05-pricing-calculation.md section 3.1. *@
+    var donePercent = summary.TotalRows == 0
+        ? 0
+        : (int)Math.Round(
+            100.0 * summary.CompletedRows / summary.TotalRows,
+            MidpointRounding.AwayFromZero);
+}
+
+<div class="page-head">
+    <div>
+        <h1 class="page-title page-title--sm">
+            @(Me.IsTechSupport ? "Prices to update on the website" : "Change set " + summary.Reference)
+        </h1>
+        <div class="page-sub page-sub--sm">
+            @summary.TourCode · @summary.TourName · @summary.TotalRows changes · submitted
+            @DepartureDateFormat.Long(summary.SubmittedUtc.ToLocalTime())
+        </div>
+    </div>
+
+    @* Back to the list, beside "Mark all as updated" - shown whether or not
+       there is anything left to mark. *@
+    <div class="row row--tight">
+        <a class="btn" href="/IntlGit/ChangeSets">
+            <st-icon name="chevron-left" class="icon--14" /> Back to index
+        </a>
+
+        @if (Model.CanTick)
+        {
+            <form method="post" asp-action="CompleteAll" asp-route-reference="@summary.Reference">
+                <button type="submit" class="btn btn--save"
+                        data-busy="Marking…">Mark all as updated</button>
+            </form>
+        }
+    </div>
+</div>
+
+@if (summary.IsApplied)
+{
+    <div class="banner banner--ok">
+        @summary.Reference applied in full on
+        @DepartureDateFormat.Stamp(summary.AppliedUtc.Value.ToLocalTime())
+        · @summary.TourCode is live on @summary.VersionAfter
+        · kept as the record of what went live.
+    </div>
+}
+
+<div class="card card--spaced">
+    <div class="statcards">
+        <div class="statcard">
+            <span class="statcard__tile statcard__tile--slate">
+                <st-icon name="tag" class="icon--20" />
+            </span>
+            <div class="statcard__body">
+                <div class="statcard__label">Change set</div>
+                <div class="statcard__value">@summary.Reference</div>
+                <div class="statcard__note">@summary.TourCode · @summary.VersionBefore</div>
+            </div>
+        </div>
+
+        <div class="statcard">
+            <span class="statcard__tile statcard__tile--blue">
+                <st-icon name="calendar" class="icon--20" />
+            </span>
+            <div class="statcard__body">
+                <div class="statcard__label">Submitted</div>
+                <div class="statcard__value">@DepartureDateFormat.Long(summary.SubmittedUtc.ToLocalTime())</div>
+                <div class="statcard__note">by @summary.SubmittedBy</div>
+            </div>
+        </div>
+
+        <div class="statcard">
+            <span class="statcard__tile statcard__tile--purple">
+                <st-icon name="send" class="icon--20" />
+            </span>
+            <div class="statcard__body">
+                <div class="statcard__label">Submitted</div>
+                <div class="statcard__value" style="font-family:var(--ui-font);">
+                    @summary.SubmittedBy
+                </div>
+                <div class="statcard__note num">
+                    @DepartureDateFormat.Stamp(summary.SubmittedUtc.ToLocalTime())
+                </div>
+            </div>
+        </div>
+
+        <div class="statcard">
+            <span class="statcard__tile statcard__tile--green">
+                <st-icon name="check" class="icon--20" />
+            </span>
+            <div class="statcard__body">
+                <div class="statcard__label">Updated on site</div>
+                <div class="statcard__value">@summary.CompletedRows of @summary.TotalRows</div>
+                <div class="progress statcard__meter" role="progressbar"
+                     aria-valuenow="@summary.CompletedRows" aria-valuemin="0" aria-valuemax="@summary.TotalRows">
+                    <div class="progress__done" style="flex:@summary.CompletedRows;"></div>
+                    <div style="flex:@(summary.TotalRows - summary.CompletedRows);"></div>
+                </div>
+                <div class="statcard__note">
+                    <span class="chip @StatusChips.For(state)">
+                        @ChangeSetStates.Label(state)
+                    </span>
+                    <span class="num" style="margin-left:6px;">@donePercent%</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(summary.Note))
+{
+    <div class="card card--spaced" style="padding:11px 14px;">
+        <div class="kicker" style="margin-bottom:4px;">Note from product team</div>
+        <div style="font-size:13px; line-height:1.55; color:#3C4B60;">@summary.Note</div>
+    </div>
+}
+
+@* ── A · Prices to update ───────────────────────────────────────────── *@
+<div class="card card--spaced">
+    <div class="card__head">
+        <span class="card__step">A</span>
+        <span class="card__title">Prices to update</span>
+        <span class="card__sub">
+            Published price with its strike-through · every figure is shown, the changed ones marked
+        </span>
+    </div>
+
+    <div class="legend">
+        <span class="legend__item">
+            <i class="legend__dot legend__dot--published" aria-hidden="true"></i>
+            <b>Published</b> — the figure to put on the website
+        </span>
+        <span class="legend__item">
+            <i class="legend__dot legend__dot--strike" aria-hidden="true"></i>
+            <b>Strike-through</b> — the crossed-out figure beside it
+        </span>
+        <span class="legend__item">
+            <i class="legend__dot legend__dot--live" aria-hidden="true"></i>
+            <b>Price live today</b> — what the change was made from, for reference
+        </span>
+        <span class="legend__item">
+            <span class="star star--read star--inline" aria-hidden="true"><span class="star__mark">*</span></span>
+            <b>Conditions apply</b> — publish this price with the asterisk
+        </span>
+        <span class="legend__break"></span>
+        <span class="legend__item">
+            <i class="legend__swatch legend__swatch--changed" aria-hidden="true"></i>
+            <b>Changed</b> — update this figure on the website
+        </span>
+        <span class="legend__item">
+            <i class="legend__swatch legend__swatch--same" aria-hidden="true"></i>
+            <b>Unchanged</b> — already correct, leave it as it is
+        </span>
+        <span class="legend__item">
+            <span class="chip chip--new chip--new-sm" aria-hidden="true">New date</span>
+            <b>Not on the website yet</b> — create the date, then set its prices
+        </span>
+        <span class="legend__item">
+            <span class="legend__tick" aria-hidden="true"><st-icon name="square" class="icon--16" /></span>
+            Tick the <b>departure row</b> once all its prices are on the website
+        </span>
+        <span class="legend__note">
+            “Price live today” is the figure the change was measured from — reference
+            only, never marked. A dash means there is nothing live yet. Where an
+            earlier change set is still being applied, the figure on the site is
+            shown underneath as well, because the two are not the same then.
+        </span>
+    </div>
+
+    @foreach (var hub in set.Hubs)
+    {
+        <div class="hub">
+            <div class="cs__hubhead">
+                <span class="hub__name">@hub.Name</span>
+                @if (hub.IsNewHub)
+                {
+                    <span class="chip chip--new">New hub — add all departures</span>
+                }
+                <span class="hub__meta">
+                    @hub.Departures.Count(d => d.IsCompleted) of @hub.Departures.Count done
+                </span>
+            </div>
+
+            <div class="scroller">
+                <div class="cs__grid">
+                    <div class="grid grid--head cs__row">
+                        <div style="padding:7px 8px; text-align:center;"><st-icon name="check" class="icon--14" label="Updated" /></div>
+                        <div class="cell--head">Departure</div>
+                        <div class="cell--head">Status</div>
+                        @foreach (var column in columns)
+                        {
+                            <div class="cell--head cell--r">@column.Label</div>
+                        }
+                    </div>
+
+                    @foreach (var departure in hub.Departures)
+                    {
+                        <div class="cs__group @(departure.IsCompleted ? "cs__group--done" : "")"
+                             id="@ChangeSetDetailViewModel.RowAnchor(departure.RowKey)">
+                            <div class="grid cs__row cs__line--pub">
+                                <div class="tickbox">
+                                    @if (Model.CanTick)
+                                    {
+                                        <form method="post" asp-action="Tick"
+                                              asp-route-reference="@summary.Reference"
+                                              asp-route-rowKey="@departure.RowKey"
+                                              asp-route-completed="@(!departure.IsCompleted)">
+                                            <button type="submit" class="tick"
+                                                    title="@(departure.IsCompleted ? "Mark as not yet updated" : "Mark as updated on the website")"
+                                                    aria-label="@(departure.IsCompleted ? "Untick" : "Tick") @DepartureDateFormat.Short(departure.Date)">
+                                                <st-icon name="@(departure.IsCompleted ? "square-check" : "square")" class="icon--20" />
+                                            </button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <span class="tick tick--locked" aria-hidden="true">
+                                            <st-icon name="@(departure.IsCompleted ? "square-check" : "square")" class="icon--20" />
+                                        </span>
+                                    }
+                                </div>
+                                <div class="cs__date">
+                                    @DepartureDateFormat.Short(departure.Date)
+
+                                    @* Creating a date is a different job from changing
+                                       a price on one that already exists, so it is said
+                                       once on the row rather than left to be inferred
+                                       from six blank "price live today" cells. *@
+                                    @if (departure.IsNewDeparture)
+                                    {
+                                        <span class="chip chip--new chip--new-sm"
+                                              title="This date is not on the website yet — add it, then set these prices">
+                                            New date
+                                        </span>
+                                    }
+                                </div>
+                                <div class="cs__linelabel cs__linelabel--pub"><i class="legend__dot legend__dot--published" aria-hidden="true"></i>Published</div>
+                                @foreach (var cell in departure.Cells)
+                                {
+                                    <div class="cs__cell" data-label="@cell.Label">
+                                        <span class="@(cell.HasChanged ? "mark" : "unmark")">
+                                            <span class="cs__value">@Inr.Format(cell.Published)</span>
+                                            @* Conditions apply. It travels with the price
+                                               because a price with conditions published
+                                               without its marker is the same mistake as a
+                                               wrong price. *@
+                                            @if (cell.HasConditions)
+                                            {
+                                                <span class="star star--read star--inline"
+                                                      title="Conditions apply — publish with the asterisk">
+                                                    <span class="star__mark">*</span>
+                                                </span>
+                                            }
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="grid cs__row cs__line--mrp">
+                                <div></div>
+                                <div></div>
+                                <div class="cs__linelabel cs__linelabel--mrp"><i class="legend__dot legend__dot--strike" aria-hidden="true"></i>Strike-through</div>
+                                @foreach (var cell in departure.Cells)
+                                {
+                                    <div class="cs__cell" data-label="@cell.Label">
+                                        <span class="@(cell.HasChanged ? "mark" : "unmark")">
+                                            <span class="cs__value cs__value--mrp">@Inr.Format(cell.StrikeThrough)</span>
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="grid cs__row">
+                                <div></div>
+                                <div></div>
+                                <div class="cs__linelabel"><i class="legend__dot legend__dot--live" aria-hidden="true"></i>Price live today</div>
+                                @foreach (var cell in departure.Cells)
+                                {
+                                    @* The figure the product team changed this FROM, which
+                                       is not always what is live: when a set was already
+                                       with tech support, this one was measured against
+                                       that set's prices. Showing the live figure there
+                                       made the change look bigger or smaller than it was.
+                                       Where the two differ, both are shown. *@
+                                    var movedFrom = cell.BaselinePrice ?? cell.LivePrice;
+                                    var differs = movedFrom.HasValue && cell.LivePrice.HasValue
+                                                  && movedFrom.Value != cell.LivePrice.Value;
+
+                                    <div class="cs__cell" data-label="@cell.Label">
+                                        <span class="mark-plain">
+                                            <span class="cs__value cs__value--was">
+                                                @* A dash, not "new departure" six times over -
+                                                   the row already says so, in one place. *@
+                                                @(movedFrom.HasValue ? Inr.Format(movedFrom.Value) : "—")
+                                            </span>
+                                            @if (differs)
+                                            {
+                                                <span class="cs__value--live"
+                                                      title="On the website now — an earlier change set is still being applied">
+                                                    site @Inr.Format(cell.LivePrice.Value)
+                                                </span>
+                                            }
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+
+                            @* The table to paste for THIS date.
+
+                               It was a floating panel hanging off the date, and that
+                               was wrong in four ways at once: it opened over the rows
+                               above, the markup was clipped by the column it hung
+                               from, it was too short to read, and the only way to
+                               shut it was the small chip it was covering.
+
+                               All four came from one decision - a popover inside a
+                               grid that scrolls sideways has nowhere to go. So it is
+                               in the flow instead, the full width of the departure it
+                               belongs to. Opening it pushes the rows below down;
+                               nothing is ever covered and nothing is clipped.
+
+                               Copy does not need it open: the common job is to paste
+                               the block, not read it. *@
+                            @if (!string.IsNullOrEmpty(departure.Html))
+                            {
+                                var boxId = "html-" + departure.RowKey
+                                    .Replace("|", "-").Replace(":", "-");
+
+                                <div class="cs__html">
+                                    <button type="button" class="btn btn--xs"
+                                            data-copy="@boxId" data-copied="Copied"
+                                            title="Copy the table for @DepartureDateFormat.Long(departure.Date)">
+                                        <st-icon name="copy" class="icon--14" /> Copy HTML
+                                    </button>
+
+                                    <details class="cs__htmlview">
+                                        <summary class="cs__htmlview-open">Show the code</summary>
+                                        <textarea class="htmlblock__code" id="@boxId" readonly rows="16"
+                                                  spellcheck="false"
+                                                  aria-label="Website markup for @hub.Name, @DepartureDateFormat.Long(departure.Date)">@departure.Html</textarea>
+                                    </details>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (set.Hubs.Count == 0)
+    {
+        <div class="empty">This change set contains only removals.</div>
+    }
+</div>
+
+@* ── B · Remove from website ────────────────────────────────────────── *@
+@if (set.Removals.Count > 0)
+{
+    <div class="card card--spaced scroller">
+        <div class="card__head">
+            <span class="card__step">B</span>
+            <span class="card__title">Remove from website</span>
+            <span class="card__sub">
+                @set.Removals.Count(r => r.IsCompleted) of @set.Removals.Count done
+            </span>
+        </div>
+
+        <div class="grid grid--head removals__row">
+            <div style="padding:7px 8px; text-align:center;"><st-icon name="check" class="icon--14" label="Updated" /></div>
+            <div class="cell--head">Hub</div>
+            <div class="cell--head">Departure</div>
+            <div class="cell--head">What to do</div>
+            <div class="cell--pad cell--r">Price live today</div>
+        </div>
+
+        <div class="rows">
+        @foreach (var removal in set.Removals)
+        {
+            <div class="grid removals__row">
+                <div class="tickbox">
+                    @if (Model.CanTick)
+                    {
+                        <form method="post" asp-action="Tick"
+                              asp-route-reference="@summary.Reference"
+                              asp-route-rowKey="@removal.RowKey"
+                              asp-route-completed="@(!removal.IsCompleted)">
+                            <button type="submit" class="tick"
+                                    aria-label="@(removal.IsCompleted ? "Untick" : "Tick") @removal.Name removal">
+                                <st-icon name="@(removal.IsCompleted ? "square-check" : "square")" class="icon--20" />
+                            </button>
+                        </form>
+                    }
+                    else
+                    {
+                        <span class="tick tick--locked" aria-hidden="true">
+                            <st-icon name="@(removal.IsCompleted ? "square-check" : "square")" class="icon--20" />
+                        </span>
+                    }
+                </div>
+                <div class="cell">@removal.Name</div>
+                <div class="cell num">
+                    @(removal.Date.HasValue
+                        ? DepartureDateFormat.Short(removal.Date.Value)
+                        : "All " + removal.DepartureCount + " departures")
+                </div>
+                <div class="cell">
+                    <span class="chip chip--off">@removal.Action</span>
+                </div>
+                <div class="cell cell--pad cell--r num"
+                     style="color:var(--ink-muted); text-decoration:line-through;">
+                    @(removal.LivePrice.HasValue ? Inr.Format(removal.LivePrice.Value) : "—")
+                </div>
+            </div>
+        }
+        </div>
+    </div>
+}
+
+<div class="card" style="padding:11px 14px; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+    <span class="muted--sm" style="color:var(--ink-muted);">
+        @if (summary.IsApplied)
+        {
+            <text>Applied in full. Kept as the record of what went live for @summary.Reference.</text>
+        }
+        else
+        {
+            <text>Published price and strike-through only. Costs, FX and margin are not shared.</text>
+        }
+    </span>
+    @* Tech support came from the work list and that is where they go back to.
+       The product team came from a tour, so sending them to the change-set
+       list would be a detour through somebody else's screen. Same branch the
+       breadcrumbs already make in Detail.cshtml.cs. *@
+    @if (Me.IsTechSupport)
+    {
+        <a class="btn" href="/IntlGit/ChangeSets"><st-icon name="chevron-left" class="icon--14" /> Back to the list</a>
+    }
+    else
+    {
+        <a class="btn" href="/IntlGit/Products"><st-icon name="chevron-left" class="icon--14" /> Back to products</a>
+    }
+</div>

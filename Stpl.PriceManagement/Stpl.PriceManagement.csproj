@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Southern Travels - Price Management.
+    ONE project: MVC controllers + views, organised by Areas.
+
+      Areas/Core      shared by every pricing type: sign-in, accounts,
+                      notifications, email, home and error pages
+      Areas/IntlGit   International GIT tour pricing
+      (Areas/IntlFit, Areas/DomesticFixed, ... are added the same way)
+
+      Infrastructure  ADO.NET helpers, current user, formatting - area-agnostic
+
+    Data access is plain ADO.NET (Microsoft.Data.SqlClient) calling stored
+    procedures in the Int_StplGITPricing database. No API layer, no ORM.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Stpl.PriceManagement</RootNamespace>
+    <AssemblyName>Stpl.PriceManagement</AssemblyName>
+    <UserSecretsId>stpl-price-management</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+  </ItemGroup>
+
+</Project>

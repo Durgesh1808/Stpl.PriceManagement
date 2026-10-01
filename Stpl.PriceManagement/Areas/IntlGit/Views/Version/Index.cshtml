@@ -1,0 +1,291 @@
+@model VersionViewModel
+@{
+    var snap = Model.Snapshot;
+    ViewData["Title"] = Model.Code + " " + Model.Version;
+
+    var entry = Model.Entry;
+    var isCurrent = snap != null
+        && string.Equals(snap.Version, snap.CurrentVersion, System.StringComparison.OrdinalIgnoreCase);
+}
+
+@section TopBarActions {
+    <div class="topbar__actions">
+        <a class="linkbtn" href="/IntlGit/Revision?code=@Model.Code">
+            <st-icon name="chevron-left" class="icon--14" /> Back to the tour
+        </a>
+
+        <a class="linkbtn" href="/IntlGit/Products">
+            <st-icon name="chevron-left" class="icon--14" /> Back to products
+        </a>
+    </div>
+}
+
+<div class="page-head">
+    <div>
+        <h1 class="page-title">
+            @Model.Code
+            <span class="chip chip--code-lg" style="margin-left:8px;">@Model.Version</span>
+        </h1>
+        <p class="page-sub">
+            @if (snap != null)
+            {
+                @snap.TourName <text> · </text>
+                <span>as it went live on @DepartureDateFormat.Stamp(snap.CapturedUtc.ToLocalTime())</span>
+                @if (isCurrent)
+                {
+                    <text> · </text><span class="chip chip--ok">Current version</span>
+                }
+            }
+            else
+            {
+                <text>version history</text>
+            }
+        </p>
+    </div>
+
+    @* Stepping through versions without going back to the tour each time.
+       Only versions that HAVE a photograph are offered - pointing somebody
+       at the empty state on purpose would be a poor way to spend a click. *@
+    @if (Model.PreviousVersion != null || Model.NextVersion != null)
+    {
+        <div class="topbar__actions">
+            @if (Model.PreviousVersion != null)
+            {
+                <a class="btn btn--sm" href="/IntlGit/Version?code=@Model.Code&version=@Model.PreviousVersion">
+                    <st-icon name="chevron-left" class="icon--14" /> @Model.PreviousVersion
+                </a>
+            }
+            @if (Model.NextVersion != null)
+            {
+                <a class="btn btn--sm" href="/IntlGit/Version?code=@Model.Code&version=@Model.NextVersion">
+                    @Model.NextVersion <st-icon name="chevron-right" class="icon--14" />
+                </a>
+            }
+        </div>
+    }
+</div>
+
+@if (snap == null)
+{
+    @* Not an error. Fifty versions predate the photograph, and saying so
+       plainly beats a blank page or a 404 that reads like a broken link. *@
+    <div class="card card--spaced">
+        <div class="card__head">
+            <span class="card__title">No full view of @Model.Version</span>
+        </div>
+        <div class="vsnap__body">
+            <p class="muted">
+                The whole product page is photographed at every version from now on.
+                @Model.Version went live before that started, so what exists for it is
+                the change set — the departures that moved, with their old and new
+                figures — and not the rest of the page around them.
+            </p>
+
+            @if (entry != null && !string.IsNullOrWhiteSpace(entry.ChangeSetRef))
+            {
+                <p>
+                    <a class="btn btn--sm" href="/IntlGit/ChangeSets/Detail?reference=@entry.ChangeSetRef">
+                        <st-icon name="layers" class="icon--14" /> Open @entry.ChangeSetRef
+                    </a>
+                </p>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <div class="banner banner--info">
+        <st-icon name="clock" class="icon--14" />
+        <span>
+            This is a record, not the tour. Every figure below is what it was on
+            @DepartureDateFormat.Stamp(snap.CapturedUtc.ToLocalTime()) — nothing here
+            recalculates, and nothing can be edited.
+            @if (!isCurrent)
+            {
+                <text>The tour is on @snap.CurrentVersion now.</text>
+            }
+        </span>
+    </div>
+
+    @* ── The cost build, as it stood ──────────────────────────────────── *@
+    <div class="card card--spaced">
+        <div class="card__head">
+            <span class="card__step">01</span>
+            <span class="card__title">Cost build</span>
+            @if (!string.IsNullOrWhiteSpace(snap.Note))
+            {
+                <span class="card__sub">@snap.Note</span>
+            }
+        </div>
+
+        <div class="vsnap__body">
+            <div class="vsnap__facts">
+                <div class="vsnap__fact">
+                    <span class="vsnap__factlabel">FX rate</span>
+                    <span class="vsnap__factvalue num">@(snap.FxRate.HasValue ? snap.FxRate.Value.ToString("0.00##") : "—")</span>
+                </div>
+                <div class="vsnap__fact">
+                    <span class="vsnap__factlabel">Strike-through</span>
+                    <span class="vsnap__factvalue num">@(snap.StrikePercent.HasValue ? snap.StrikePercent.Value.ToString("0.##") + "%" : "—")</span>
+                </div>
+                <div class="vsnap__fact">
+                    <span class="vsnap__factlabel">Launch pax slab</span>
+                    <span class="vsnap__factvalue num">@(snap.PaxSlab.HasValue ? snap.PaxSlab.Value.ToString() : "—")</span>
+                </div>
+                <div class="vsnap__fact">
+                    <span class="vsnap__factlabel">Shared cost</span>
+                    <span class="vsnap__factvalue num">@(snap.SharedCost.HasValue ? Inr.Format(snap.SharedCost.Value) : "—")</span>
+                </div>
+            </div>
+
+            @if (snap.Occupancies != null && snap.Occupancies.Count > 0)
+            {
+                <div class="scroller" style="margin-top:14px;">
+                    <table class="vsnap__table">
+                        <thead>
+                            <tr>
+                                <th>Occupancy</th>
+                                <th class="cell--r">Land cost (FX)</th>
+                                <th class="cell--r">Per person (INR)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var occ in Model.Snapshot.Occupancies.OrderBy(o => o.SortOrder))
+                        {
+                            <tr>
+                                <td>@occ.Label</td>
+                                <td class="cell--r num">@occ.LandCostFx.ToString("N2")</td>
+                                <td class="cell--r num">@Inr.Format(occ.PerPersonInr)</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* ── One card per hub: markup, then every date with its fares and prices ── *@
+    var step = 1;
+
+    @foreach (var hub in Model.Snapshot.Hubs.OrderBy(h => h.Name))
+    {
+        step++;
+        var occCodes = Model.Snapshot.Occupancies.OrderBy(o => o.SortOrder).ToList();
+
+        <div class="card card--spaced">
+            <div class="card__head">
+                <span class="card__step">@step.ToString("00")</span>
+                <span class="card__title">@hub.Name</span>
+                <span class="card__sub">
+                    @if (hub.MarkupPercent.HasValue)
+                    {
+                        <text>markup @Inr.Plain(hub.MarkupPercent)%</text>
+                    }
+                    else
+                    {
+                        <text>no markup set</text>
+                    }
+                    @if (!hub.IsActive)
+                    {
+                        <text> · </text><span class="chip chip--off">Withdrawn</span>
+                    }
+                </span>
+            </div>
+
+            <div class="scroller">
+                <table class="vsnap__table">
+                    <thead>
+                        <tr>
+                            <th>Departure</th>
+                            <th class="cell--r">Adult + TM</th>
+                            <th class="cell--r">Child</th>
+                            <th class="cell--r">Infant</th>
+                            @foreach (var occ in occCodes)
+                            {
+                                <th class="cell--r">@occ.Label</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var dep in hub.Departures)
+                    {
+                        var cells = dep.Cells.ToDictionary(c => c.Occupancy, c => c);
+
+                        <tr class="@(dep.IsActive ? "" : "faregrid__row--withdrawn")">
+                            <td class="num">
+                                @DepartureDateFormat.Short(dep.Date)
+                                @if (!dep.IsActive)
+                                {
+                                    <span class="chip chip--off" style="margin-left:6px;">off</span>
+                                }
+                            </td>
+
+                            @foreach (var band in new[] { "adult", "child", "infant" })
+                            {
+                                <td class="cell--r num">
+                                    @(dep.Fares != null && dep.Fares.ContainsKey(band)
+                                        ? Inr.Format(dep.Fares[band]) : "—")
+                                </td>
+                            }
+
+                            @foreach (var occ in occCodes)
+                            {
+                                <td class="cell--r num">
+                                    @if (cells.ContainsKey(occ.Occupancy))
+                                    {
+                                        var cell = cells[occ.Occupancy];
+                                        <span>@Inr.Format(cell.Published)</span>
+                                        @if (cell.HasConditions)
+                                        {
+                                            <span class="star__mark" title="Conditions applied">*</span>
+                                        }
+                                        <span class="muted--sm" style="display:block; color:var(--ink-muted-3);">
+                                            <s>@Inr.Format(cell.StrikeThrough)</s>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color:var(--ink-muted-3);">—</span>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+}
+
+@* ── What this version changed ────────────────────────────────────────────
+   From the change set, not the photograph: the photograph says what the page
+   looked like, the change set says what moved to make it look that way. *@
+@if (Model.ChangeSet != null)
+{
+    <div class="card card--spaced">
+        <div class="card__head">
+            <span class="card__title">What changed in @Model.Version</span>
+            <span class="card__sub">
+                @Model.ChangeSet.Summary.Reference ·
+                @Model.ChangeSet.Summary.TotalRows
+                @(Model.ChangeSet.Summary.TotalRows == 1 ? "row" : "rows") ·
+                @Model.ChangeSet.Summary.SubmittedBy
+            </span>
+        </div>
+
+        <div class="vsnap__body">
+            @if (!string.IsNullOrWhiteSpace(Model.ChangeSet.Summary.Note))
+            {
+                <p class="muted">@Model.ChangeSet.Summary.Note</p>
+            }
+
+            <p>
+                <a class="btn btn--sm" href="/IntlGit/ChangeSets/Detail?reference=@Model.ChangeSet.Summary.Reference">
+                    <st-icon name="layers" class="icon--14" /> Open the change set
+                </a>
+            </p>
+        </div>
+    </div>
+}

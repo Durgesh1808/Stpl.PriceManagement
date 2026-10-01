@@ -1,0 +1,333 @@
+@model ProductsIndexViewModel
+@inject CurrentUser Me
+@{
+    ViewData["Title"] = "Products";
+    ViewData["Crumbs"] = Model.Crumbs;
+}
+
+
+<div class="page-head">
+    <div>
+        <h1 class="page-title">Products</h1>
+        <div class="page-sub">@Model.Subtitle</div>
+    </div>
+
+    @* No create-tour endpoint exists, so this says what it is rather than
+       leading somewhere that 404s. The tour master is the source of truth. *@
+    <span class="btn btn--primary is-disabled"
+          title="Products come from the tour master — this screen prices them">
+        <st-icon name="plus" class="icon--14" /> Add product
+    </span>
+</div>
+
+@* Every control posts the whole form, so no filter is lost by a control that
+   forgot to carry the others. The Apply button is the no-JavaScript path;
+   site.js hides it once the selects can submit themselves. *@
+<form method="get" class="filterbar" role="search">
+    <div class="filterbar__search">
+        <st-icon name="search" class="icon--16 filterbar__searchicon" />
+        <input class="field field--search" type="search" name="search"
+               value="@Model.Search" placeholder="Search tour code or name"
+               aria-label="Search tours" />
+    </div>
+
+    <label class="filterbar__select">
+        <span class="filterbar__caption">Region</span>
+        <select class="field" name="region" data-autosubmit>
+            <option value="">All regions</option>
+            @foreach (var region in Model.Regions)
+            {
+                <option value="@region" selected="@(region == Model.Region)">@region</option>
+            }
+        </select>
+    </label>
+
+    <label class="filterbar__select">
+        <span class="filterbar__caption">Status</span>
+        <select class="field" name="status" data-autosubmit>
+            <option value="">All statuses</option>
+            @foreach (var status in ProductsIndexViewModel.StatusOptions)
+            {
+                <option value="@status" selected="@(status.ToString() == Model.Status)">
+                    @RevisionStatuses.Label(status, Me.Role)
+                </option>
+            }
+        </select>
+    </label>
+
+    @* Sort and page size survive a filter change. The page number does not,
+       and that is deliberate - filtering always lands you on page one. *@
+    @if (!string.IsNullOrWhiteSpace(Model.Sort))
+    {
+        <input type="hidden" name="sort" value="@Model.Sort" />
+    }
+    @if (Model.Ascending)
+    {
+        <input type="hidden" name="ascending" value="true" />
+    }
+    @if (Model.Size != 25)
+    {
+        <input type="hidden" name="size" value="@Model.Size" />
+    }
+
+    <button type="submit" class="btn btn--sm filterbar__apply">Apply</button>
+
+    @if (Model.HasFilters)
+    {
+        <a class="linkbtn linkbtn--sm" href="/IntlGit/Products">Clear filters</a>
+    }
+</form>
+
+<div class="card scroller">
+    <div class="grid grid--head products__row">
+        <a class="sortable @(Model.Sort == "tour" ? "sortable--active" : "")"
+           href="@Model.SortUrl("tour")">
+            <span>Tour</span>
+            <span class="sortable__arrow">
+                @if (Model.SortIcon("tour") != null)
+                {
+                    <st-icon name="@Model.SortIcon("tour")" class="icon--12" />
+                }
+            </span>
+        </a>
+        <a class="sortable sortable--r @(Model.Sort == "deps" ? "sortable--active" : "")"
+           href="@Model.SortUrl("deps")">
+            <span>Deps</span>
+            <span class="sortable__arrow">
+                @if (Model.SortIcon("deps") != null)
+                {
+                    <st-icon name="@Model.SortIcon("deps")" class="icon--12" />
+                }
+            </span>
+        </a>
+        <a class="sortable sortable--r @(Model.Sort == "hubs" ? "sortable--active" : "")"
+           href="@Model.SortUrl("hubs")">
+            <span>Hubs</span>
+            <span class="sortable__arrow">
+                @if (Model.SortIcon("hubs") != null)
+                {
+                    <st-icon name="@Model.SortIcon("hubs")" class="icon--12" />
+                }
+            </span>
+        </a>
+        <a class="sortable @(Model.Sort == "status" ? "sortable--active" : "")"
+           href="@Model.SortUrl("status")">
+            <span>Change set status</span>
+            <span class="sortable__arrow">
+                @if (Model.SortIcon("status") != null)
+                {
+                    <st-icon name="@Model.SortIcon("status")" class="icon--12" />
+                }
+            </span>
+        </a>
+        <a class="sortable @(Model.Sort == "updated" ? "sortable--active" : "")"
+           href="@Model.SortUrl("updated")">
+            <span>Updated</span>
+            <span class="sortable__arrow">
+                @if (Model.SortIcon("updated") != null)
+                {
+                    <st-icon name="@Model.SortIcon("updated")" class="icon--12" />
+                }
+            </span>
+        </a>
+
+        @* Not sortable: it is a way in, not a fact about the tour. *@
+        <div class="cell--pad">Airfare summary</div>
+        <div></div>
+    </div>
+
+    @* .rows so CSS can stripe by position. The header above and the empty
+       state below are siblings, not children, or they would be counted. *@
+    <div class="rows">
+    @* Region is a heading now, not a column. The rows are already ordered by
+       region (see SortRows), so a heading goes in wherever the region changes -
+       which includes the first row of every page, so a region carried over a
+       page break arrives under its own name rather than as orphaned rows.
+
+       The count is the region's total across the whole filtered list, not the
+       rows below it here, or the same region would read "3" on one page and
+       "5" on the next. *@
+    @{ string shownRegion = null; }
+    @foreach (var tour in Model.Tours)
+    {
+        if (!string.Equals(shownRegion, tour.Region, StringComparison.OrdinalIgnoreCase))
+        {
+            shownRegion = tour.Region;
+
+            <div class="products__region-head">
+                <span class="products__region-name">@tour.Region</span>
+                <span class="products__region-count">@Model.RegionCount(tour.Region)</span>
+            </div>
+        }
+
+        @* The row is a <div>, not an <a>: it now contains a menu, and a link
+           cannot contain another link. The tour name carries the real link and
+           stretches over the row with a pseudo-element; the menu sits above
+           that sheet on z-index. Whole-row click still works. *@
+        <div class="grid products__row">
+            <div class="products__tour">
+                <span class="chip chip--code" style="margin-top:1px;">@tour.Code</span>
+                <a class="products__name products__link"
+                   href="/IntlGit/Revision?code=@tour.Code">
+                    @tour.Name
+                    <span class="muted--sm" style="color:var(--ink-muted-3);">· @tour.Duration</span>
+                </a>
+            </div>
+
+            @* data-label is what the phone layout captions these with. Stacked,
+               the column headings are gone and two bare numbers under a tour
+               name say nothing at all. *@
+            <a class="cell cell--r num products__count" data-label="Departures"
+               href="/IntlGit/Revision?code=@tour.Code#hubs"
+               title="Open the departures for @tour.Code">@tour.DepartureCount</a>
+            <a class="cell cell--r num products__count" data-label="Hubs"
+               href="/IntlGit/Revision?code=@tour.Code#hubs"
+               title="Open the hubs for @tour.Code">@tour.HubCount</a>
+
+            <div style="padding:8px 10px;">
+                <div class="products__state">
+                    <span class="chip @StatusChips.For(tour.Status)">
+                        @RevisionStatuses.Label(tour.Status, Me.Role)
+                    </span>
+                    <span class="muted--sm num" style="color:var(--ink-muted);">@tour.StatusDetail</span>
+                </div>
+            </div>
+
+            <div class="cell cell--pad" style="color:var(--ink-muted);">@tour.UpdatedLabel</div>
+
+            @* Its own link rather than a row-menu entry: this is a screen
+               people come to the list to open, not an action on the tour.
+               Sits above the row's stretched link on z-index. *@
+            <div class="cell cell--pad">
+                <a class="products__sheetlink"
+                   href="/IntlGit/FlightSheet?code=@tour.Code"
+                   title="What air-ticketing has sent for @tour.Code, hand-over by hand-over">
+                    <st-icon name="plane" class="icon--12" /> View
+                </a>
+            </div>
+
+            <div class="cell cell--r" style="padding-right:var(--sp-2);">
+                @* <details> opens and closes with no script and is keyboard
+                   operable. site.js only adds click-outside-to-close. *@
+                <details class="rowmenu">
+                    <summary class="rowmenu__trigger" aria-label="Actions for @tour.Code">
+                        <st-icon name="more" class="icon--16" />
+                    </summary>
+                    <div class="rowmenu__pop">
+                        <a class="rowmenu__item" href="/IntlGit/Revision?code=@tour.Code">
+                            Open revision
+                        </a>
+                        <a class="rowmenu__item" href="/IntlGit/Revision?code=@tour.Code&edit=true">
+                            Edit revision
+                        </a>
+                        @if (Me.IsProductExecutive)
+                        {
+                            <a class="rowmenu__item" href="/IntlGit/Review?code=@tour.Code">
+                                Review change set
+                            </a>
+                        }
+                        <a class="rowmenu__item" href="/IntlGit/Revision?code=@tour.Code#activity">
+                            Who changed what
+                        </a>
+                    </div>
+                </details>
+            </div>
+        </div>
+    }
+    </div>
+
+    @if (Model.Tours.Count == 0)
+    {
+        <div class="empty">
+            @(Model.HasFilters
+                ? "No tour matches these filters."
+                : "No tours yet.")
+        </div>
+    }
+</div>
+
+@if (Model.TotalCount > 0)
+{
+    <nav class="pager" aria-label="Pagination">
+        <form method="get" class="pager__size">
+            @* Carries the filters forward, or changing page size drops them. *@
+            @if (!string.IsNullOrWhiteSpace(Model.Search))
+            {
+                <input type="hidden" name="search" value="@Model.Search" />
+            }
+            @if (!string.IsNullOrWhiteSpace(Model.Region))
+            {
+                <input type="hidden" name="region" value="@Model.Region" />
+            }
+            @if (!string.IsNullOrWhiteSpace(Model.Status))
+            {
+                <input type="hidden" name="status" value="@Model.Status" />
+            }
+            @if (!string.IsNullOrWhiteSpace(Model.Sort))
+            {
+                <input type="hidden" name="sort" value="@Model.Sort" />
+            }
+            @if (Model.Ascending)
+            {
+                <input type="hidden" name="ascending" value="true" />
+            }
+
+            <label for="pagesize">Rows per page</label>
+            <select class="field field--sm" id="pagesize" name="size" data-autosubmit>
+                <option value="25" selected="@(Model.Size == 25)">25</option>
+                <option value="50" selected="@(Model.Size == 50)">50</option>
+                <option value="100" selected="@(Model.Size == 100)">100</option>
+            </select>
+            <button type="submit" class="btn btn--sm filterbar__apply">Go</button>
+        </form>
+
+        <div class="pager__status num">
+            @Model.FirstRow–@Model.LastRow of @Model.TotalCount
+        </div>
+
+        <div class="pager__pages">
+            @* A step with nowhere to go is a <span>, not a greyed link -
+               an <a> without an href is still activated by a keyboard. *@
+            @if (Model.PageNumber > 1)
+            {
+                <a class="pager__step" href="@Model.PageUrl(Model.PageNumber - 1)"
+                   aria-label="Previous page"><st-icon name="chevron-left" class="icon--16" /></a>
+            }
+            else
+            {
+                <span class="pager__step pager__step--off" aria-hidden="true">
+                    <st-icon name="chevron-left" class="icon--16" />
+                </span>
+            }
+
+            @foreach (var n in Model.PageNumbers())
+            {
+                if (n == 0)
+                {
+                    <span class="pager__gap">…</span>
+                }
+                else if (n == Model.PageNumber)
+                {
+                    <span class="pager__num pager__num--current" aria-current="page">@n</span>
+                }
+                else
+                {
+                    <a class="pager__num" href="@Model.PageUrl(n)">@n</a>
+                }
+            }
+
+            @if (Model.PageNumber < Model.PageCount)
+            {
+                <a class="pager__step" href="@Model.PageUrl(Model.PageNumber + 1)"
+                   aria-label="Next page"><st-icon name="chevron-right" class="icon--16" /></a>
+            }
+            else
+            {
+                <span class="pager__step pager__step--off" aria-hidden="true">
+                    <st-icon name="chevron-right" class="icon--16" />
+                </span>
+            }
+        </div>
+    </nav>
+}
+

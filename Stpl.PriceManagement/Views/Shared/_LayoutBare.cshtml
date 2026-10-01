@@ -1,0 +1,32 @@
+﻿@*
+    The layout for a page reached before signing in.
+
+    No navigation rail, no breadcrumbs, no role chip: every one of them is a
+    statement about who you are, and nobody is anybody yet. It also means the
+    sign-in page cannot accidentally reveal the shape of the application - how
+    many sections there are, what they are called - to somebody who has not
+    got in.
+*@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@(ViewData["Title"] ?? "Sign in") · Southern Travels</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="~/common/css/app.css" asp-append-version="true" />
+    @* An area page adds its own stylesheet here: @section Styles { <link rel="stylesheet" href="~/intlgit/css/....css" asp-append-version="true" /> } *@
+    @await RenderSectionAsync("Styles", required: false)
+</head>
+<body class="bare">
+<partial name="_IconSprite" />
+
+@RenderBody()
+
+<script src="~/common/js/site.js" asp-append-version="true"></script>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

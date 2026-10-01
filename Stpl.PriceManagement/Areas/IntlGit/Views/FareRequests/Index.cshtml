@@ -1,0 +1,105 @@
+@model FareRequestsViewModel
+@{
+    ViewData["Title"] = "Fare requests";
+    ViewData["Crumbs"] = Model.Crumbs;
+}
+
+<div class="page-head">
+    <div>
+        <h1 class="page-title">Fare requests</h1>
+        <div class="page-sub">@Model.Subtitle</div>
+    </div>
+</div>
+
+@if (Model.Requests.Count == 0)
+{
+    <div class="card" style="padding:28px; text-align:center;">
+        <div style="font-size:15px; font-weight:600; color:var(--ink-strong);">
+            Nothing waiting on you
+        </div>
+        <div class="muted--sm" style="color:var(--ink-muted-3); margin-top:6px;">
+            When the product team adds a hub or a departure date, they send the tour
+            here and it appears in this list.
+        </div>
+        <div style="margin-top:16px;">
+            <a class="btn btn--edit" href="/IntlGit/Products">Open products</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card scroller">
+        <div class="grid grid--head farereq__row">
+            <div class="cell--pad">Product</div>
+            <div class="cell--pad">Region</div>
+            <div class="cell--pad cell--r">Awaiting · queried</div>
+            <div class="cell--pad">Earliest departure</div>
+            <div class="cell--pad">Asked</div>
+        </div>
+
+        <div class="rows">
+        @foreach (var request in Model.Requests)
+        {
+            <a class="grid farereq__row"
+               href="/IntlGit/Revision?code=@request.TourCode&edit=true">
+                <div class="products__tour">
+                    <span class="chip chip--code" style="margin-top:1px;">@request.TourCode</span>
+                    <span class="products__name">@request.TourName</span>
+                </div>
+
+                <div class="products__region" title="@request.Region">@request.Region</div>
+
+                @* Two reasons a tour is here, and it can be both. "re-quote"
+                   used to be inferred from a zero - a guess that was right by
+                   accident, and said nothing about how many. *@
+                <div class="cell cell--r">
+                    @if (request.AwaitingFares > 0)
+                    {
+                        <span class="faregrid__changed" title="@request.AwaitingFares with no fare yet">
+                            <span class="dot"></span>@request.AwaitingFares
+                        </span>
+                    }
+                    @if (request.QueriedDepartures > 0)
+                    {
+                        <span class="faregrid__held"
+                              title="@request.QueriedDepartures sent back by the product team for a re-quote">
+                            <st-icon name="rotate-ccw" class="icon--12" /> @request.QueriedDepartures
+                        </span>
+                    }
+                    @if (request.AwaitingFares == 0 && request.QueriedDepartures == 0)
+                    {
+                        <span class="muted--sm" style="color:var(--ink-muted-3);">—</span>
+                    }
+                </div>
+
+                <div class="cell cell--pad num">
+                    @if (request.EarliestDeparture.HasValue)
+                    {
+                        @DepartureDateFormat.Short(request.EarliestDeparture.Value)
+                        <span class="muted--sm" style="color:var(--ink-muted-3); display:block;">
+                            @FareRequestsViewModel.Urgency(request.EarliestDeparture)
+                        </span>
+                    }
+                    else
+                    {
+                        <span style="color:var(--ink-muted-3);">—</span>
+                    }
+                </div>
+
+                <div class="cell cell--pad">
+                    <span class="num" style="font-size:12px;">
+                        @DepartureDateFormat.Stamp(request.RequestedUtc.ToLocalTime())
+                    </span>
+                    <span class="muted--sm" style="color:var(--ink-muted-3); display:block;">
+                        @request.RequestedBy
+                    </span>
+                    @if (!string.IsNullOrWhiteSpace(request.Note))
+                    {
+                        <span class="farereq__note">@request.Note</span>
+                    }
+                </div>
+            </a>
+        }
+        </div>
+    </div>
+}

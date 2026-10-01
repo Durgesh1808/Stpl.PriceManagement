@@ -1,0 +1,1958 @@
+@model RevisionViewModel
+@inject CurrentUser Me
+@{
+    var revision = Model.Revision;
+    var cost = revision.CostBuild;
+    var permissions = Model.Permissions;
+    var pending = Model.Pending;
+    var occupancies = cost.Occupancies.OrderBy(o => o.SortOrder).ToList();
+
+    ViewData["Title"] = revision.Code + " price revision";
+    ViewData["Crumbs"] = Model.Crumbs;
+
+    var shortName = revision.Name.Split(" — ")[0];
+    var sharedPerPerson = cost.PaxSlab > 0 ? cost.SharedCost / cost.PaxSlab : 0m;
+
+    // Prices indexed for lookup while drawing the grid.
+    var priceIndex = revision.Prices.ToDictionary(
+        p => p.Hub + "|" + p.Date.ToString("yyyy-MM-dd") + "|" + p.Occupancy);
+}
+
+@{
+    @* Only when there is something to jump to - a button that scrolls
+       nowhere is worse than no button. Two panels can answer this: who
+       changed what, and which change sets were raised. Prefer the first,
+       fall back to the second, and hide the button when neither exists. *@
+    var hasActivity = Model.Activity != null && Model.Activity.Count > 0;
+    var hasHistory = Model.History != null && Model.History.Count > 0;
+    var hasQueries = Model.FareQueries.Count > 0;
+}
+
+@section TopBarActions {
+    @* Everything you do to this tour, on the one row that is already sticky.
+
+       These had a band of their own between the title and the content, which
+       belonged to neither and cost 54px of permanent height on a grid that
+       runs to five thousand. Measured: this row needs about 880px and has
+       1210 at a 1440 screen. Below roughly 1110 the breadcrumb gives way
+       rather than wrapping - see .crumbs in app.css, and read the note there
+       before widening anything here. *@
+    <div class="topbar__actions">
+        @* One toolbar, one treatment - see .topbar__actions in app.css. These
+           were a filled primary, two outlines, two icon squares and a text
+           link, which read as five unrelated controls rather than the set of
+           choices this screen offers. *@
+        @if (Me.IsProductExecutive)
+        {
+            <a class="btn btn--sm" href="/IntlGit/Review?code=@revision.Code">
+                <st-icon name="send" class="icon--14" /> Review change set
+            </a>
+
+            <form method="post" asp-action="RequestFares" asp-route-code="@revision.Code"
+                  asp-route-edit="@permissions.IsEditing" asp-route-open="@Model.Open">
+                <button type="submit" class="btn btn--sm" data-busy="Sending…">
+                    <st-icon name="rotate-ccw" class="icon--14" />
+                    @(Model.FareRequestedUtc.HasValue
+                        ? "Ask air-ticketing again"
+                        : "Send back to air-ticketing")
+                </button>
+            </form>
+        }
+
+        @* Air-ticketing: the submit button, up here beside Edit, so fares can
+           be sent without scrolling a grid that runs to thousands of pixels.
+           It submits the same form as the button at the foot of the page
+           (form="submitfares"), so the note typed there goes with it. *@
+        @if (Me.IsAirTicketing)
+        {
+            <button type="submit" form="submitfares" class="btn btn--sm btn--submitfares"
+                    data-busy="Sending…"
+                    title="@(revision.FaresSubmittedUtc.HasValue
+                        ? "Last shared with the product team " + DepartureDateFormat.Stamp(revision.FaresSubmittedUtc.Value.ToLocalTime())
+                        : "Send these fares to the product team")">
+                <st-icon name="send" class="icon--14" /> Submit fares to product team
+            </button>
+        }
+
+        @* Icon AND word. The pencil on its own was not read as "edit", and a
+           clock on its own is not read as "history" either - the same doubt
+           applies to both, so both say what they are. *@
+        @if (permissions.IsReadOnly)
+        {
+            <a class="btn btn--sm" href="@Model.Self(edit: true)" title="Edit this revision">
+                <st-icon name="pencil" class="icon--14" /> Edit
+            </a>
+        }
+        else
+        {
+            <a class="btn btn--sm" href="@Model.Self(edit: false)" title="Stop editing">
+                <st-icon name="check" class="icon--14" /> Done
+            </a>
+        }
+
+        @* A real anchor to the sections at the bottom, which is the whole
+           answer with the script blocked. site.js upgrades it into the button
+           that opens the panel. *@
+        @if (hasActivity || hasHistory || hasQueries)
+        {
+            <a class="btn btn--sm" href="#history-panel" data-panel="history-panel"
+               title="Who changed what, the change sets raised, and anything with air-ticketing">
+                <st-icon name="clock" class="icon--14" /> History
+                @if (hasQueries)
+                {
+                    <span class="btn__count" title="@Model.FareQueries.Count with air-ticketing">@Model.FareQueries.Count</span>
+                }
+            </a>
+        }
+
+        @* Beside History, because it answers the same kind of question one
+           step further back: not "who changed this figure" but "what has
+           air-ticketing sent us all season". *@
+        <a class="btn btn--sm" href="/IntlGit/FlightSheet?code=@revision.Code"
+           title="What air-ticketing has sent for @revision.Code, hand-over by hand-over">
+            <st-icon name="plane" class="icon--14" /> Airfare summary
+        </a>
+
+        <a class="linkbtn" href="/IntlGit/Products">
+            <st-icon name="chevron-left" class="icon--14" /> Back to products
+        </a>
+    </div>
+}
+
+<div class="page-head">
+    <div style="min-width:0;">
+        <div class="row row--tight">
+            <span class="chip chip--code chip--code-lg">@revision.Code</span>
+            <span class="page-title page-title--sm">@shortName</span>
+        </div>
+        <div class="page-sub page-sub--sm">
+            @(revision.LastSavedUtc.HasValue
+                ? "Saved " + DepartureDateFormat.Stamp(revision.LastSavedUtc.Value.ToLocalTime())
+                : "Never saved")
+            · live version @revision.Version
+            · @pending.TotalChanges changes pending
+        </div>
+    </div>
+</div>
+
+
+@if (revision.FaresSubmittedUtc.HasValue && !Me.IsAirTicketing)
+{
+    <div class="banner banner--ok">
+        Fares submitted by air-ticketing on
+        @DepartureDateFormat.Stamp(revision.FaresSubmittedUtc.Value.ToLocalTime())
+        · set the published selling price below.
+    </div>
+}
+
+@* ── Somebody else got here first ────────────────────────────────────────
+   Shown instead of saving, with everything typed still on the page. It names
+   who and what, because a refusal that only says "try again" gets clicked
+   through and then protects nobody. *@
+@if (Model.StaleMessage != null)
+{
+    <div class="banner banner--danger stale">
+        <st-icon name="alert-triangle" class="icon--16" />
+        <div class="stale__body">
+            <div class="stale__head">Nothing was saved — @Model.StaleMessage</div>
+
+            @if (Model.StaleChanges.Count > 0)
+            {
+                <ul class="stale__list">
+                    @foreach (var change in Model.StaleChanges.Take(8))
+                    {
+                        <li>
+                            <span class="stale__who">@change.ActorName</span>
+                            <span class="stale__what">
+                                @ActivityPhrasing.ActionLabel(change.Action)
+                                @if (!string.IsNullOrEmpty(change.HubName))
+                                {
+                                    <text> · @change.HubName</text>
+                                }
+                                @if (change.DepartureDate.HasValue)
+                                {
+                                    <text> · @DepartureDateFormat.Short(change.DepartureDate.Value)</text>
+                                }
+                                @if (!string.IsNullOrEmpty(change.Field))
+                                {
+                                    <text> · @ActivityPhrasing.FieldLabel(change.Action, change.Field)</text>
+                                }
+                            </span>
+                            @if (change.OldValue.HasValue || change.NewValue.HasValue)
+                            {
+                                <span class="stale__move num">
+                                    @(change.OldValue.HasValue ? Inr.Plain(change.OldValue.Value) : "not set")
+                                    <span class="stale__arrow">→</span>
+                                    @(change.NewValue.HasValue ? Inr.Plain(change.NewValue.Value) : "cleared")
+                                </span>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+
+            <div class="stale__what-now">
+                What you typed is still on this page. Check it against the changes
+                above, then press Save again — or
+                <a href="@Model.Self()">reload</a> to start from theirs.
+            </div>
+        </div>
+    </div>
+}
+
+@if (permissions.IsEditing)
+{
+    <div class="banner banner--info">
+        <span style="font-weight:600;">Editing</span>
+        <span>
+            @(Me.IsAirTicketing
+                ? "You can edit airfare only. FX and the cost build are set by the product team."
+                : "Blue fields accept input · prices recalculate when you save each section.")
+        </span>
+    </div>
+}
+
+@* ── 01 · FX and cost build ─────────────────────────────────────────── *@
+@* The id lets the revision note in panel 03 belong to THIS form. The note is
+   a column on the cost build, so it has to post with the cost build - and it
+   reads where somebody would look for it, under "Revision note & submit",
+   rather than being dragged up here to sit with the FX rate. *@
+<form method="post" id="costbuild" asp-action="CostBuild" asp-route-code="@revision.Code"
+      asp-route-edit="@permissions.IsEditing" asp-route-open="@Model.Open">
+    <div class="card card--spaced" id="cost-build">
+        <div class="card__head">
+            <span class="card__step">01</span>
+            <span class="card__title">FX &amp; cost build</span>
+            <span class="card__sub">
+                @(Me.IsAirTicketing
+                    ? "Set by the product team — read-only for air-ticketing"
+                    : permissions.CanEditCostBuild
+                        ? "Editing — blue fields accept input"
+                        : "Saved values · choose Edit revision to change them")
+            </span>
+            @if (permissions.CanEditCostBuild)
+            {
+                <button type="submit" class="btn btn--save btn--sm push"
+                        data-busy="Saving…">Save cost build</button>
+            }
+        </div>
+
+        @* The ids and names below are a contract, not decoration.
+           workspace.js reads #fx, #slab and #shared to recalculate the cost
+           per person as you type, and OnPostCostBuildAsync binds FxRate,
+           StrikePercent, PaxSlab and SharedCost. Renaming any of them breaks
+           one of those SILENTLY - no error, the figures just stop moving. *@
+        <div class="statcards">
+            <div class="statcard">
+                <span class="statcard__tile statcard__tile--blue">
+                    <st-icon name="currency" class="icon--20" />
+                </span>
+                <div class="statcard__body">
+                    <div class="statcard__label">
+                        <span>FX rate</span>
+                        <button type="button" class="statcard__info" tabindex="-1"
+                                aria-label="What the FX rate is"
+                                title="Rupees per 1 unit of the tour's contract currency. Applied to the land cost for every occupancy.">
+                            <st-icon name="info" class="icon--14" />
+                        </button>
+                    </div>
+                    <div class="statcard__value">
+                        @* Only where there IS a previous rate to have moved from.
+                           A tour whose rate is being entered for the first time
+                           has not moved, and an arrow pointing out of an empty
+                           box reads as a figure that went missing. *@
+                        @if (cost.PreviousFxRate.HasValue && cost.FxRate != cost.PreviousFxRate)
+                        {
+                            <span class="statcard__prev">@Inr.Plain(cost.PreviousFxRate)</span>
+                            <span class="statcard__arrow">→</span>
+                        }
+                        @if (permissions.CanEditCostBuild)
+                        {
+                            <input class="field field--edit field--stat" name="FxRate" id="fx"
+                                   value="@Inr.Plain(cost.FxRate)" aria-label="FX rate" inputmode="decimal" />
+                        }
+                        else
+                        {
+                            <span>@Inr.Plain(cost.FxRate)</span>
+                        }
+                    </div>
+                    <div class="statcard__note">INR per 1 unit (e.g. USD/EUR)</div>
+                </div>
+            </div>
+
+            <div class="statcard">
+                <span class="statcard__tile statcard__tile--green">
+                    <st-icon name="percent" class="icon--20" />
+                </span>
+                <div class="statcard__body">
+                    <div class="statcard__label">
+                        <span>Strike-through %</span>
+                        <button type="button" class="statcard__info" tabindex="-1"
+                                aria-label="What the strike-through percentage is"
+                                title="How far above the selling price the crossed-out figure sits on the website.">
+                            <st-icon name="info" class="icon--14" />
+                        </button>
+                    </div>
+                    <div class="statcard__value">
+                        @if (permissions.CanEditCostBuild)
+                        {
+                            <input class="field field--edit field--stat" name="StrikePercent" id="strike"
+                                   value="@Inr.Plain(cost.StrikePercent)" aria-label="Strike-through percent"
+                                   inputmode="decimal" />
+                        }
+                        else
+                        {
+                            <span>@Inr.Plain(cost.StrikePercent)</span>
+                        }
+                        <span class="statcard__hint">%</span>
+                    </div>
+                    <div class="statcard__note">Applied on selling price</div>
+                </div>
+            </div>
+
+            <div class="statcard">
+                <span class="statcard__tile statcard__tile--purple">
+                    <st-icon name="users" class="icon--20" />
+                </span>
+                <div class="statcard__body">
+                    <div class="statcard__label">
+                        <span>Launch pax slab</span>
+                        <button type="button" class="statcard__info" tabindex="-1"
+                                aria-label="What the launch pax slab is"
+                                title="The group size the shared cost is divided by to reach a per-person share.">
+                            <st-icon name="info" class="icon--14" />
+                        </button>
+                    </div>
+                    <div class="statcard__value">
+                        @if (permissions.CanEditCostBuild)
+                        {
+                            <input class="field field--edit field--stat" name="PaxSlab" id="slab"
+                                   value="@cost.PaxSlab" aria-label="Launch pax slab" inputmode="numeric" />
+                        }
+                        else
+                        {
+                            <span>@cost.PaxSlab</span>
+                        }
+                        <span class="statcard__hint">pax</span>
+                    </div>
+                    <div class="statcard__note">Base group size for pricing</div>
+                </div>
+            </div>
+
+            <div class="statcard">
+                <span class="statcard__tile statcard__tile--orange">
+                    <st-icon name="share" class="icon--20" />
+                </span>
+                <div class="statcard__body">
+                    <div class="statcard__label">
+                        <span>Shared cost (INR)</span>
+                        <button type="button" class="statcard__info" tabindex="-1"
+                                aria-label="What the shared cost is"
+                                title="Costs carried by the whole group rather than per person - split across the launch pax slab.">
+                            <st-icon name="info" class="icon--14" />
+                        </button>
+                    </div>
+                    <div class="statcard__value">
+                        @if (permissions.CanEditCostBuild)
+                        {
+                            <input class="field field--edit field--stat" name="SharedCost" id="shared"
+                                   value="@Inr.Plain(cost.SharedCost)" aria-label="Shared cost"
+                                   inputmode="decimal" />
+                        }
+                        else
+                        {
+                            <span>@Inr.Format(cost.SharedCost)</span>
+                        }
+                    </div>
+                    <div class="statcard__note">Tour Manager air added separately</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="scroller">
+            <div class="costgrid">
+                @* costgrid__head, not grid--head: the latter uppercases its
+                   contents, and these are the same six occupancy labels the
+                   fare grid below renders in normal case. One screen, one
+                   casing. *@
+                <div class="grid costgrid__head costgrid__row">
+                    <div class="cell--pad">Per person</div>
+                    @foreach (var occupancy in occupancies)
+                    {
+                        <div class="col-label col-label--r col-label--cost">@occupancy.Label</div>
+                    }
+                    <div></div>
+                </div>
+
+                <div class="grid costgrid__row">
+                    <div class="cell cell--pad" style="color:#3E4E62;">Land in FX (incl. remittance)</div>
+                    @foreach (var occupancy in occupancies)
+                    {
+                        <div class="costgrid__cell" data-label="@occupancy.Label">
+                            @if (permissions.CanEditCostBuild)
+                            {
+                                <input class="field field--edit field--num field--fill js-cost"
+                                       name="Land[@occupancy.Occupancy]"
+                                       data-kind="land" data-occupancy="@occupancy.Occupancy"
+                                       value="@Inr.Plain(occupancy.LandCostFx)"
+                                       aria-label="Land cost, @occupancy.Label" inputmode="decimal" />
+                            }
+                            else
+                            {
+                                <span class="num" style="font-size:13px;">@Inr.Plain(occupancy.LandCostFx)</span>
+                            }
+                        </div>
+                    }
+                    <div></div>
+                </div>
+
+                <div class="grid costgrid__row">
+                    <div class="cell cell--pad" style="color:#3E4E62;">Per-person INR cost</div>
+                    @foreach (var occupancy in occupancies)
+                    {
+                        <div class="costgrid__cell" data-label="@occupancy.Label">
+                            @if (permissions.CanEditCostBuild)
+                            {
+                                <input class="field field--edit field--num field--fill js-cost"
+                                       name="PerPerson[@occupancy.Occupancy]"
+                                       data-kind="perperson" data-occupancy="@occupancy.Occupancy"
+                                       value="@Inr.Plain(occupancy.PerPersonInr)"
+                                       aria-label="Per-person cost, @occupancy.Label" inputmode="decimal" />
+                            }
+                            else
+                            {
+                                <span class="num" style="font-size:13px;">@Inr.Format(occupancy.PerPersonInr)</span>
+                            }
+                        </div>
+                    }
+                    <div></div>
+                </div>
+
+                <div class="grid costgrid__total">
+                    <div class="cell cell--pad" style="font-weight:600;">Cost per person</div>
+                    @foreach (var occupancy in occupancies)
+                    {
+                        <div class="num" style="padding:10px 12px; text-align:right; font-size:13px;"
+                             data-total="@occupancy.Occupancy">@Inr.Format(occupancy.TotalCost)</div>
+                    }
+                    <div></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</form>
+
+@* ── 02 · Departures, airfare and price ─────────────────────────────── *@
+@* id="hubs" is the target of the Deps and Hubs counts on the products list. *@
+<div class="card card--spaced" id="hubs">
+    <div class="card__head card__head--split">
+        <div class="row" style="align-items:baseline;">
+            <span class="card__step">02</span>
+            <span class="card__title">Departures, airfare &amp; price</span>
+            <span class="card__sub">
+                @* Was "land + airfare, including the tour manager's seat", which
+                   stopped being true of every hub the day Joining Direct arrived.
+                   The exception belongs on the hub that has it, not in a line
+                   describing all of them at once. *@
+                @revision.Hubs.Count(h => h.IsActive) active hubs · markup per hub on
+                the costs that hub carries, including the tour manager's seat
+            </span>
+        </div>
+
+        <div class="row row--tight">
+            <a class="btn btn--sm" href="@Model.ExpandAllUrl">Expand all</a>
+            <a class="btn btn--sm" href="@Model.CollapseAllUrl">Collapse all</a>
+
+            @if (permissions.CanChangeStructure && Model.AvailableHubs.Count > 0)
+            {
+                <details class="js-addhub">
+                    <summary class="btn btn--sm btn--edit" style="list-style:none;"><st-icon name="plus" class="icon--14" /> Add hub</summary>
+                </details>
+            }
+            else if (!permissions.CanChangeStructure)
+            {
+                <span class="muted--sm" style="color:var(--ink-muted-3);">
+                    @(Me.IsAirTicketing
+                        ? "Air-ticketing enters fares only — hubs and dates are set by the product team"
+                        : "Choose Edit revision to add or withdraw hubs and dates")
+                </span>
+            }
+
+            @if (permissions.CanEditFares)
+            {
+                @* One Save for the whole tour. The fare and price boxes live
+                   inside each hub's block but belong to this form, which is why
+                   they carry form="faregrid" - the hub blocks contain their own
+                   little forms (markup, withdraw, add departure) and forms
+                   cannot nest. *@
+                <button type="submit" form="faregrid" class="btn btn--save btn--sm"
+                        data-busy="Saving…">
+                    Save all hubs
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (permissions.CanEditFares)
+    {
+        <form method="post" id="faregrid" asp-action="HubGrid" asp-route-code="@revision.Code"
+              asp-route-edit="@permissions.IsEditing" asp-route-open="@Model.Open">
+            @* Which grids this form drew. An unticked "conditions apply" box
+               posts nothing, so the server can only tell a cleared star from a
+               hub that was never on screen if the form says which hubs it
+               covered. *@
+            <input type="hidden" name="Hubs" value="@Model.RenderedHubs" />
+
+            @* The tour as it stood when this page was drawn. Every save carries
+               it back, and is refused if somebody else has moved the tour
+               since - which is what stops a screen left open for ten minutes
+               from overwriting their work, and stops a save that never saw a
+               star from deleting it.
+
+               Round-tripped as ticks: a formatted date would lose the
+               sub-second precision the comparison needs. *@
+            <input type="hidden" name="ExpectedModifiedUtc"
+                   value="@revision.ModifiedUtc.Ticks" />
+        </form>
+    }
+
+    @if (permissions.CanChangeStructure && Model.AvailableHubs.Count > 0)
+    {
+        <form method="post" asp-action="AddHub" asp-route-code="@revision.Code"
+              asp-route-edit="true" asp-route-open="@Model.Open" class="inline-form">
+            <div class="kicker" style="color:var(--info-ink); margin-bottom:8px;">Add a hub to this tour</div>
+            <div class="inline-form__row">
+                <div>
+                    <div class="inline-form__label">Choose hub</div>
+                    <select class="field" name="hub" aria-label="Hub to add">
+                        @foreach (var hub in Model.AvailableHubs)
+                        {
+                            @* The hub master carries a default margin only where
+                               somebody has set one. Where it has none, say so
+                               rather than showing a bare per-cent sign. *@
+                            <option value="@hub.Hub">
+                                @if (hub.DefaultMarkupPercent.HasValue)
+                                {
+                                    @: @hub.Name (@Inr.Plain(hub.DefaultMarkupPercent)%)
+                                }
+                                else
+                                {
+                                    @: @hub.Name (no default markup)
+                                }
+                            </option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <div class="inline-form__label">Markup %</div>
+                    <input class="field field--edit field--num field--pct" name="markup"
+                           placeholder="default" aria-label="Markup percent" inputmode="decimal" />
+                </div>
+                <div>
+                    <div class="inline-form__label">Departure dates</div>
+                    @{
+                        @* The dates this tour is actually selling: live on a hub
+                           that is itself live, and not already gone. The same
+                           definition usp_AddTourHub copies by, so the count on
+                           screen is the count that arrives. *@
+                        var today = DateTime.UtcNow.Date;
+                        var tourDates = revision.Hubs
+                            .Where(h => h.IsActive)
+                            .SelectMany(h => h.Departures)
+                            .Where(d => d.IsActive && d.Date.Date >= today)
+                            .Select(d => d.Date.Date)
+                            .Distinct()
+                            .Count();
+                    }
+                    <div class="datechoice">
+                        <label class="datechoice__option">
+                            <input type="radio" name="copyDates" value="true" checked
+                                   id="copy-dates-same" />
+                            <span>
+                                Same as this tour's other hubs
+                                <span class="datechoice__count">@tourDates date@(tourDates == 1 ? "" : "s")</span>
+                            </span>
+                        </label>
+                        <label class="datechoice__option">
+                            <input type="radio" name="copyDates" value="false" id="copy-dates-own" />
+                            <span>I'll add them myself</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="inline-form__actions">
+                    <button type="submit" class="btn btn--go">Add hub</button>
+                </div>
+            </div>
+        </form>
+    }
+
+    @foreach (var hub in revision.Hubs)
+    {
+        var isOpen = Model.IsHubOpen(hub.Hub);
+
+        <div class="hub" id="hub-@hub.Hub">
+            <div class="hub__head @(isOpen ? "hub__head--open" : "")">
+                <a class="hub__toggle" href="@Model.ToggleHubUrl(hub.Hub)"
+                   aria-expanded="@(isOpen ? "true" : "false")">
+                    <span class="hub__caret"><st-icon name="@(isOpen ? "chevron-down" : "chevron-right")" class="icon--14" /></span>
+                    <span class="hub__name">@hub.Name</span>
+                    <span class="hub__meta">@hub.ActiveDepartures departures</span>
+                    @if (!hub.IsActive)
+                    {
+                        <span class="chip chip--off">Withdrawn</span>
+                    }
+                    @if (hub.IsNewHub && hub.IsActive)
+                    {
+                        <span class="chip chip--new">New hub</span>
+                    }
+                    @if (!hub.HasPassengerAirfare)
+                    {
+                        @* Says why this hub's grid looks different, before anybody
+                           has to work it out from the greyed cells. *@
+                        <span class="chip chip--info"
+                              title="Customers join the tour at the destination. Land costs and a share of the tour manager's seat only — no passenger airfare.">Land only</span>
+                    }
+                </a>
+
+                @* Markup only. Withdrawing a hub used to sit right beside this
+                   box - a destructive action touching a number you type into -
+                   and it has moved down into the hub's own toolbar, with the
+                   rest of that hub's actions. *@
+                <div class="hub__controls">
+                    <div class="hub__markup">
+                        <span class="hub__markup-label">Markup %</span>
+                        @if (permissions.CanChangeStructure)
+                        {
+                            <form method="post" asp-action="HubMarkup" asp-route-code="@revision.Code"
+                                  asp-route-edit="true" asp-route-open="@Model.Open"
+                                  asp-route-hub="@hub.Hub" style="display:inline;">
+                                <input class="field field--edit field--num field--markup" name="markup"
+                                       value="@Inr.Plain(hub.MarkupPercent)"
+                                       aria-label="@hub.Name markup percent"
+                                       inputmode="decimal"
+                                       onchange="if (this.form.requestSubmit) { this.form.requestSubmit(); } else { this.form.submit(); }" />
+                            </form>
+                        }
+                        else if (hub.MarkupPercent.HasValue)
+                        {
+                            <span class="hub__markup-value">@Inr.Plain(hub.MarkupPercent)%</span>
+                        }
+                        else
+                        {
+                            <span class="hub__markup-value hub__markup-value--unset">not set</span>
+                        }
+                    </div>
+
+                    @* "Same as calculated SP" describes the prices; it does not
+                       remember a choice.
+
+                       Ticked means every priced cell on this hub already equals its
+                       calculated figure. Pressing it makes that true for the ones
+                       that are blank - fills them, clears any stale override sitting
+                       behind them, and records the agreement. The next change that
+                       blanks a cell takes the tick off by itself.
+
+                       It was a STORED setting until migration 0047, and while it was
+                       on the price cell rendered as read-only text. Ticking a box
+                       therefore removed the ability to price the hub, which is how
+                       FBE06 came to be unpriceable on five hubs out of six. *@
+                    @{
+                        var hubCells = revision.Prices
+                            .Where(p => string.Equals(p.Hub, hub.Hub, StringComparison.OrdinalIgnoreCase)
+                                        && p.HasFare)
+                            .ToList();
+                        var hubBlanks = hubCells.Count(p => !p.Published.HasValue);
+                        var hubAtCalculated = hubCells.Count > 0
+                            && hubCells.All(p => p.Published.HasValue && p.Published == p.Calculated);
+                    }
+                    @if (permissions.CanEditPublishedPrice)
+                    {
+                        @* Always a button while prices can be edited - on
+                           Joining / Leaving too - so it can be pressed straight
+                           after typing a fare. workspace.js saves the typed
+                           figures first, and the handler then fills every box
+                           on this hub that has no agreed price. Ticked when every
+                           price already equals its calculated figure. *@
+                        <form method="post" asp-action="HubSameAsCalculated" asp-route-code="@revision.Code"
+                              asp-route-edit="true" asp-route-open="@Model.Open"
+                              asp-route-hub="@hub.Hub" class="hub__same">
+                            <button type="submit" class="hub__same-btn" role="switch"
+                                    aria-checked="@(hubAtCalculated ? "true" : "false")"
+                                    data-same-hub="@hub.Hub"
+                                    data-busy="Filling…"
+                                    title="@(hubBlanks > 0
+                                        ? "Fill this hub's " + hubBlanks + " empty " + (hubBlanks == 1 ? "box" : "boxes") + " with the calculated price, and agree to " + (hubBlanks == 1 ? "it" : "them")
+                                        : "Fill any empty boxes on this hub with the calculated price")">
+                                <st-icon name="@(hubAtCalculated ? "square-check" : "square")" class="icon--14" />
+                                same as calculated SP
+                            </button>
+                        </form>
+                    }
+                    else
+                    {
+                        <span class="hub__same hub__same-btn hub__same-btn--read"
+                              data-same-hub="@hub.Hub"
+                              role="switch" aria-checked="@(hubAtCalculated ? "true" : "false")"
+                              title="@(hubAtCalculated ? "Every price on this hub is the calculated one" : "Some prices on this hub were typed by hand")">
+                            <st-icon name="@(hubAtCalculated ? "square-check" : "square")" class="icon--14" />
+                            same as calculated SP
+                        </span>
+                    }
+                </div>
+            </div>
+
+            @if (isOpen)
+            {
+                @if (permissions.CanChangeStructure)
+                {
+                    <form method="post" asp-action="AddDeparture" asp-route-code="@revision.Code"
+                          asp-route-edit="true" asp-route-open="@Model.Open" asp-route-hub="@hub.Hub"
+                          class="inline-form"
+                          style="display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap;">
+                        <div>
+                            <div class="inline-form__label">New departure date for @hub.Name</div>
+                            @* A native date input: a calendar on a desktop, the
+                               system wheel on a phone, and no script behind
+                               either. It submits yyyy-MM-dd whatever it shows
+                               the person - DepartureDateFormat.TryParse reads
+                               that shape first. The date is still SHOWN as
+                               "04 Dec 26" everywhere; this is how it is picked,
+                               not a new format.
+
+                               No placeholder: a date input ignores one. The
+                               shape of the field is its own instruction. *@
+                            <input class="field field--edit field--date" type="date" name="date"
+                                   aria-label="New departure date" />
+                        </div>
+                        <div class="muted--sm" style="color:var(--ink-muted-3); padding-bottom:7px;">
+                            @(hub.Departures.Count > 0
+                                ? "Last departure on this hub: "
+                                    + DepartureDateFormat.Short(hub.Departures.Max(d => d.Date))
+                                : "No departures yet")
+                        </div>
+                        <div class="inline-form__actions">
+                            <button type="submit" class="btn btn--sm btn--edit">
+                                <st-icon name="plus" class="icon--14" /> Add departure
+                            </button>
+                        </div>
+                    </form>
+                }
+
+                <div class="gridtools">
+                    <label class="gridtools__switch">
+                        <input type="checkbox" class="js-onlychanged" data-hub="@hub.Hub" />
+                        Show changed rows only
+                    </label>
+
+                    @* A departure that has gone is folded away rather than
+                       withdrawn or deleted: withdrawing would write an act into
+                       the audit trail that nobody performed, and deleting would
+                       lose what was sold. It is still here, and one click away. *@
+                    @{
+                        var pastOnHub = hub.Departures == null ? 0
+                            : hub.Departures.Count(d => d.Date.Date < DateTime.Now.Date);
+                    }
+                    @if (pastOnHub > 0)
+                    {
+                        <label class="gridtools__switch">
+                            <input type="checkbox" class="js-showpast" data-hub="@hub.Hub" />
+                            Show @pastOnHub past departure@(pastOnHub == 1 ? "" : "s")
+                        </label>
+                    }
+
+                    <span class="legend legend--inline">
+                        <span class="legend__item">
+                            <span class="dot dot--draft"></span> changed here, not yet sent
+                        </span>
+                        <span class="legend__item">
+                            <span class="dot dot--sent"></span> with tech support
+                        </span>
+                        <span class="legend__item">
+                            <span class="star__mark star__mark--legend">*</span> conditions apply
+                        </span>
+                    </span>
+
+                    @* This hub's actions, together at the end of its own
+                       toolbar. Withdraw is here rather than up beside the
+                       markup box, where it sat next to a field people type in.
+
+                       A consequence worth knowing: the toolbar only exists
+                       while a hub is expanded, so withdrawing one now means
+                       opening it first. For an action that takes a hub off the
+                       website, being asked to look at it is not a bad trade. *@
+                    @* There is no "Confirm all" here any more, and there cannot
+                       be one. Agreeing to a figure and having a figure became
+                       the same fact: a cell is blank exactly while nobody has
+                       agreed to it, so there is never a priced cell left over
+                       for a confirm button to settle. The two ways to settle a
+                       blank are to type a price, or to press "same as
+                       calculated SP" on the hub header - both of which record
+                       the agreement as they write the figure. *@
+                    <div class="gridtools__actions">
+                        @if (permissions.CanChangeStructure)
+                        {
+                            <form method="post" asp-action="HubActive" asp-route-code="@revision.Code"
+                                  asp-route-edit="true" asp-route-open="@Model.Open"
+                                  asp-route-hub="@hub.Hub" asp-route-active="@(!hub.IsActive)">
+                                <button type="submit"
+                                        class="btn btn--xs @(hub.IsActive ? "btn--danger" : "btn--restore")">
+                                    <st-icon name="@(hub.IsActive ? "ban" : "rotate-ccw")" class="icon--14" />
+                                    @(hub.IsActive ? "Withdraw hub" : "Restore hub")
+                                </button>
+                            </form>
+                        }
+                    </div>
+                </div>
+
+                @* One name per fare band, read by the column heading AND by the
+                   data-label each cell carries for the phone layout. Declared
+                   once because they have to agree: the adult heading is not
+                   always "Adult + TM", and a cell captioned differently from
+                   the column above it is worse than no caption at all. *@
+                var bandLabels = new Dictionary<string, string>
+                {
+                    { "adult", hub.HasPassengerAirfare ? "Adult + TM" : "Tour manager" },
+                    { "child", "Child" },
+                    { "infant", "Infant" }
+                };
+
+                <div class="scroller">
+                    <div class="faregrid" id="grid-@hub.Hub">
+                            <div class="grid faregrid__head">
+                                <div></div>
+                                <div></div>
+                                <div class="col-group" style="grid-column:span 3;">Airfare — air-ticketing</div>
+                                <div class="col-group" style="grid-column:span 6;">
+                                    Price per occupancy — calculated · published · strike-through
+                                </div>
+                                <div></div>
+                            </div>
+
+                            <div class="grid faregrid__cols">
+                                @* --fare and --price carry the same gutters as
+                                   the cells below them. Without that the
+                                   headings and the figures sit on different
+                                   vertical lines, which is what made the grid
+                                   look out. The rule colour is a token now, so
+                                   the line does not change shade partway down. *@
+                                <div class="col-label">Date</div>
+                                <div class="col-label col-label--status">Status</div>
+                                @* On a hub the customer joins at the destination the one
+                                   figure here is the tour manager's ticket. Calling it
+                                   "Adult + TM" there would name a passenger fare that
+                                   does not exist. *@
+                                <div class="col-label col-label--r col-label--fare"
+                                     title="@(hub.HasPassengerAirfare
+                                         ? "The passenger's own fare, plus the tour manager's seat shared across the launch pax slab."
+                                         : "The tour manager's ticket, shared across the launch pax slab. Customers on this hub join at the destination, so no passenger airfare enters the price.")">
+                                    @bandLabels["adult"]
+                                </div>
+                                <div class="col-label col-label--r col-label--fare">@bandLabels["child"]</div>
+                                <div class="col-label col-label--r col-label--fare">@bandLabels["infant"]</div>
+                                @foreach (var occupancy in occupancies)
+                                {
+                                    <div class="col-label col-label--r col-label--price">@occupancy.Label</div>
+                                }
+                                <div></div>
+                            </div>
+
+                            <div class="rows">
+                            @foreach (var departure in hub.Departures.OrderBy(d => d.Date))
+                            {
+                                var key = departure.Date.ToString("yyyy-MM-dd");
+
+                                @* Which figures on this row moved. Worked out once, up
+                                   front, so the row status and the cell dots can never
+                                   disagree with each other. *@
+                                var changedBands = new List<string>();
+                                foreach (var band in new[] { "adult", "child", "infant" })
+                                {
+                                    var now = departure.Fares != null && departure.Fares.ContainsKey(band)
+                                        ? departure.Fares[band] : (decimal?)null;
+                                    var before = departure.PreviousFares != null && departure.PreviousFares.ContainsKey(band)
+                                        ? departure.PreviousFares[band] : (decimal?)null;
+
+                                    if (now.HasValue && before.HasValue && now.Value != before.Value)
+                                    {
+                                        changedBands.Add(band);
+                                    }
+                                }
+
+                                @* Where each price on this row stands. The rule is
+                                   intlgit.fn_PriceMatrix's, read here rather than
+                                   worked out again - this used to recompute
+                                   "changed" from the baseline, alongside the same
+                                   rule in SQL, and two implementations of one
+                                   rule are free to drift. *@
+                                var draftOccupancies = new List<string>();
+                                var sentOccupancies = new List<string>();
+                                var unconfirmedOnRow = 0;
+                                var isNewDeparture = false;
+                                var noPriceOnRow = 0;
+
+                                foreach (var occupancy in occupancies)
+                                {
+                                    var probeKey = hub.Hub + "|" + key + "|" + occupancy.Occupancy;
+                                    if (!priceIndex.ContainsKey(probeKey))
+                                    {
+                                        continue;
+                                    }
+
+                                    var probe = priceIndex[probeKey];
+
+                                    if (probe.HasFare && !probe.IsConfirmed)
+                                    {
+                                        unconfirmedOnRow++;
+                                    }
+
+                                    if (probe.ChangeState == PriceStates.NoPrice)
+                                    {
+                                        noPriceOnRow++;
+                                    }
+
+                                    if (probe.ChangeState == PriceStates.New)
+                                    {
+                                        isNewDeparture = true;
+                                    }
+                                    else if (probe.ChangeState == PriceStates.Draft)
+                                    {
+                                        draftOccupancies.Add(occupancy.Occupancy);
+                                    }
+                                    else if (probe.ChangeState == PriceStates.Sent)
+                                    {
+                                        sentOccupancies.Add(occupancy.Occupancy);
+                                    }
+                                }
+
+                                var changeCount = changedBands.Count + draftOccupancies.Count;
+
+                                @* A row whose prices have just gone blank has changed more
+                                   than most - it is the one thing on the grid that needs
+                                   doing. Leaving it out of this test dimmed it into the
+                                   background as "unchanged", which is the opposite of true. *@
+                                var rowIsUnchanged = changeCount == 0 && !isNewDeparture
+                                                     && sentOccupancies.Count == 0
+                                                     && noPriceOnRow == 0;
+
+                                @* Held back: a fare on this date has been sent
+                                   to air-ticketing, so the whole departure stays
+                                   out of the change set until they answer. Read
+                                   off the departure, which is the unit that is
+                                   actually held. *@
+                                var isHeld = departure.IsQueried;
+
+                                @* A withdrawn departure is not a stripe - it is a state,
+                                   and it beats the stripe on specificity in CSS. *@
+                                <div class="grid faregrid__row @(rowIsUnchanged ? "faregrid__row--unchanged" : "") @(departure.IsActive ? "" : "faregrid__row--withdrawn") @(isHeld ? "faregrid__row--held" : "") @(departure.Date.Date < DateTime.Now.Date ? "faregrid__row--past" : "")">
+                                    <div class="faregrid__date">@DepartureDateFormat.Short(departure.Date)</div>
+
+                                    @* Three states, not two. A set that has gone to
+                                       tech support used to look exactly like one
+                                       that had not, so after submitting, a whole
+                                       tour read as settled while half of it was
+                                       still in flight. *@
+                                    <div class="faregrid__status">
+                                        @* Held wins over everything else on the
+                                           row. Whatever state these figures are
+                                           in, none of them is going anywhere
+                                           until air-ticketing answers, and that
+                                           is the thing to know first. *@
+                                        @if (isHeld)
+                                        {
+                                            <span class="faregrid__held"
+                                                  title="Sent back to air-ticketing — this whole departure is out of the change set until they answer">
+                                                <st-icon name="rotate-ccw" class="icon--12" /> With air-ticketing
+                                            </span>
+                                        }
+                                        else if (noPriceOnRow > 0)
+                                        {
+                                            @* Second only to held, and for the same reason: whatever
+                                               else is true of these figures, this date is not going
+                                               anywhere until somebody prices it. *@
+                                            <span class="faregrid__noprice"
+                                                  title="@noPriceOnRow of these have no agreed price, so this whole departure stays out of the change set">
+                                                <st-icon name="alert-triangle" class="icon--12" /> Needs a price
+                                            </span>
+                                        }
+                                        else if (isNewDeparture)
+                                        {
+                                            <span class="faregrid__new" title="This departure has never been on the website">New</span>
+                                        }
+                                        else
+                                        {
+                                            @if (changeCount > 0)
+                                            {
+                                                <span class="faregrid__changed"
+                                                      title="@changeCount changed here, not yet sent to tech support">
+                                                    <span class="dot dot--draft"></span>@changeCount
+                                                </span>
+                                            }
+                                            @if (sentOccupancies.Count > 0)
+                                            {
+                                                <span class="faregrid__changed faregrid__changed--sent"
+                                                      title="@sentOccupancies.Count with tech support, not yet live">
+                                                    <span class="dot dot--sent"></span>@sentOccupancies.Count
+                                                </span>
+                                            }
+                                        }
+
+                                        @* ── Flight details ─────────────────
+                                           Beside the date and the status,
+                                           where the facts about the DEPARTURE
+                                           live. It was in the action column,
+                                           among the things you DO to a row -
+                                           withdraw it, send it back - which is
+                                           a different kind of control.
+
+                                           An icon, not a box: the grid is
+                                           1084px at its narrowest and this is
+                                           a paragraph. Both roles may write
+                                           it. The textarea rides the same
+                                           #faregrid form, so Save all hubs
+                                           commits it with everything else. *@
+                                        @if (permissions.CanEditFares)
+                                        {
+                                            <details class="rowmenu flightform">
+                                                <summary class="flightform__btn @(string.IsNullOrWhiteSpace(departure.FlightDetails) ? "" : "flightform__btn--written")"
+                                                         title="@(string.IsNullOrWhiteSpace(departure.FlightDetails) ? "Add flight details" : departure.FlightDetails)">
+                                                    <st-icon name="plane" class="icon--12" />
+                                                </summary>
+                                                <div class="rowmenu__pop flightform__pop">
+                                                    <div class="queryform__title">Flight details</div>
+                                                    <div class="queryform__sub">
+                                                        @hub.Name · @DepartureDateFormat.Short(departure.Date)
+                                                    </div>
+
+                                                    <textarea class="field flightform__text"
+                                                              form="faregrid"
+                                                              name="Flight[@hub.Hub|@key]"
+                                                              rows="5" maxlength="500"
+                                                              placeholder="Carrier, flight numbers, timings, connections — one per line.">@Model.FlightValue(hub.Hub, key, departure.FlightDetails)</textarea>
+
+                                                    <span class="muted--sm" style="color:var(--ink-muted-3);">
+                                                        Saved with the grid — press Save all hubs
+                                                    </span>
+                                                </div>
+                                            </details>
+                                        }
+                                        else if (!string.IsNullOrWhiteSpace(departure.FlightDetails))
+                                        {
+                                            <details class="rowmenu flightform">
+                                                <summary class="flightform__btn flightform__btn--written" title="Flight details">
+                                                    <st-icon name="plane" class="icon--12" />
+                                                </summary>
+                                                <div class="rowmenu__pop flightform__pop">
+                                                    <div class="queryform__title">Flight details</div>
+                                                    <div class="queryform__sub">
+                                                        @hub.Name · @DepartureDateFormat.Short(departure.Date)
+                                                    </div>
+                                                    <p class="flightform__read">@departure.FlightDetails</p>
+                                                </div>
+                                            </details>
+                                        }
+                                    </div>
+
+                                    @foreach (var band in new[] { "adult", "child", "infant" })
+                                    {
+                                        decimal? amount = departure.Fares != null && departure.Fares.ContainsKey(band)
+                                            ? departure.Fares[band] : null;
+                                        decimal? wasAmount = departure.PreviousFares != null && departure.PreviousFares.ContainsKey(band)
+                                            ? departure.PreviousFares[band] : null;
+
+                                        @* Which band is actually disputed. The row says the
+                                           departure is held; this says which figure caused it. *@
+                                        var bandQueried = departure.QueriedFares != null
+                                            && departure.QueriedFares.ContainsKey(band)
+                                            && departure.QueriedFares[band];
+
+                                        @* A band this hub will never quote. On a hub the customer
+                                           joins at the destination there is no flight to price, so
+                                           the one fare here is the tour manager's ticket - which
+                                           air-ticketing enters in the adult band, as everywhere
+                                           else. Child and infant have nothing behind them: no fare
+                                           row is created for them either. *@
+                                        var bandDead = !hub.HasPassengerAirfare && band != "adult";
+
+                                        @* data-group appears on the first cell of each group only,
+                                           and is what the phone layout draws its section headings
+                                           from. On a wide screen the two .col-group captions above
+                                           the grid do that job; stacked, those captions are gone,
+                                           and without these an airfare and a selling price sit next
+                                           to each other with nothing saying they are different
+                                           things. Razor drops the attribute when the value is null. *@
+                                        <div class="faregrid__fare @(changedBands.Contains(band) ? "faregrid__fare--changed" : "") @(bandQueried ? "faregrid__fare--queried" : "")"
+                                             data-label="@bandLabels[band]"
+                                             data-group="@(band == "adult" ? "Airfare — air-ticketing" : null)">
+                                            @if (changedBands.Contains(band))
+                                            {
+                                                <span class="dot" aria-hidden="true"></span>
+                                            }
+                                            @if (bandDead)
+                                            {
+                                                @* Text, not a disabled box. A greyed input invites
+                                                   clicking; greyed words say there is nothing here.
+                                                   Deliberately not .faregrid__awaiting, which means
+                                                   "not entered yet" - a different fact, and the
+                                                   screen should not conflate the two. *@
+                                                <span class="faregrid__na"
+                                                      title="No flight on this departure — the customer joins the tour at the destination, so no @band airfare enters the price.">
+                                                    not applicable
+                                                </span>
+                                            }
+                                            else if (permissions.CanEditFares)
+                                            {
+                                                @* Blank means nobody has entered a fare yet - which is
+                                                   different from a fare of zero, and different again from
+                                                   quietly copying another departure's figure. *@
+                                                <input class="field field--edit field--num field--fill js-fare"
+                                                       form="faregrid"
+                                                       name="Fare[@hub.Hub|@key|@band]"
+                                                       value="@Model.FareValue(hub.Hub, key, band, amount)"
+                                                       placeholder="enter fare"
+                                                       data-hub="@hub.Hub" data-date="@key" data-band="@band"
+                                                       aria-label="@band fare, @hub.Name @DepartureDateFormat.Short(departure.Date)"
+                                                       inputmode="decimal" />
+                                            }
+                                            else if (amount.HasValue)
+                                            {
+                                                <span class="num" style="font-size:13px;">@Inr.Format(amount.Value)</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="faregrid__awaiting">awaiting fare</span>
+                                            }
+
+                                            @* What it was before air-ticketing last changed it, read
+                                               as a movement rather than two separate figures. *@
+                                            @if (wasAmount.HasValue && amount.HasValue && wasAmount.Value != amount.Value)
+                                            {
+                                                <span class="faregrid__was" title="Previous fare">
+                                                    @Inr.Format(wasAmount.Value) →
+                                                    <b>@Inr.Format(amount.Value)</b>
+                                                </span>
+                                            }
+                                        </div>
+                                    }
+
+                                    @foreach (var occupancy in occupancies)
+                                    {
+                                        var cellKey = hub.Hub + "|" + key + "|" + occupancy.Occupancy;
+                                        var cell = priceIndex.ContainsKey(cellKey) ? priceIndex[cellKey] : null;
+
+                                        var state = cell == null ? PriceStates.NoFare : cell.ChangeState;
+                                        var needsReview = cell != null && cell.HasFare && !cell.IsConfirmed;
+
+                                        <div class="faregrid__price @(state == PriceStates.Draft ? "faregrid__price--changed" : "") @(state == PriceStates.Sent ? "faregrid__price--sent" : "") @(needsReview ? "faregrid__price--unconfirmed" : "")"
+                                             data-cell="@hub.Hub|@key|@occupancy.Occupancy"
+                                             data-occupancy="@occupancy.Occupancy"
+                                             data-label="@occupancy.Label"
+                                             data-group="@(occupancy.Occupancy == occupancies[0].Occupancy ? "Price per occupancy" : null)">
+                                            @if (state == PriceStates.Draft)
+                                            {
+                                                <span class="dot dot--draft" aria-hidden="true"
+                                                      title="Changed here, not yet sent to tech support"></span>
+                                            }
+                                            else if (state == PriceStates.Sent)
+                                            {
+                                                <span class="dot dot--sent" aria-hidden="true"
+                                                      title="With tech support, not yet live"></span>
+                                            }
+                                            @if (cell == null || !cell.HasFare)
+                                            {
+                                                @* No airfare, so there is no price. Saying so is better
+                                                   than showing a figure built on a fare nobody entered. *@
+                                                <span class="faregrid__awaiting">awaiting airfare</span>
+                                            }
+                                            else if (!cell.Calculated.HasValue)
+                                            {
+                                                @* The fare is in, but the cost build is not. A fare on its
+                                                   own is not a price - a Europe tour priced from airfare
+                                                   alone reads 85,600 against a real 340,000 - so the cell
+                                                   says what is missing rather than showing the arithmetic
+                                                   of an empty cost build. *@
+                                                <span class="faregrid__awaiting"
+                                                      title="The cost build for this tour has not been entered, so there is nothing to price from.">awaiting cost build</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="faregrid__calc">calc @Inr.Format(cell.Calculated.Value)</span>
+
+                                                @if (permissions.CanEditPublishedPrice)
+                                                {
+                                                    @* Typing over this figure sets a published price that
+                                                       holds even when a cost changes. Leaving it alone
+                                                       leaves the calculated price in force.
+
+                                                       A cell nobody has agreed to since its figure moved
+                                                       is EMPTY, and empty all the way down - no value and
+                                                       no placeholder. It used to carry the published price
+                                                       as a placeholder, which for an overridden cell meant
+                                                       the STALE typed figure: a number that was neither
+                                                       current nor anybody's current intention. The
+                                                       calculated price sits above and the last published
+                                                       one below; between them there is a decision to make,
+                                                       and a blank box is what that looks like. *@
+                                                    <input class="field field--edit field--num field--price field--fill @(!cell.Published.HasValue ? "field--ghost" : "")"
+                                                           form="faregrid"
+                                                           name="Price[@hub.Hub|@key|@occupancy.Occupancy]"
+                                                           data-calc="@cell.Calculated.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                                                           value="@Model.PriceValue(hub.Hub, key, occupancy.Occupancy, cell.Published)"
+                                                           aria-label="Published @occupancy.Label price, @hub.Name @DepartureDateFormat.Short(departure.Date)@(!cell.Published.HasValue ? " — no price yet" : "")"
+                                                           inputmode="decimal" />
+                                                }
+                                                else if (cell.Published.HasValue)
+                                                {
+                                                    <span class="faregrid__pub">@Inr.Format(cell.Published.Value)</span>
+                                                }
+                                                else
+                                                {
+                                                    @* A role that cannot price it still has to be able to
+                                                       see that it is unpriced, or the grid reads as done. *@
+                                                    <span class="faregrid__nopublished">no price yet</span>
+                                                }
+
+                                                @* Conditions apply. A marker, not a sentence - the
+                                                   wording lives on the website, and six words in a cell
+                                                   this size would not be read anyway. *@
+                                                @if (permissions.CanEditPublishedPrice)
+                                                {
+                                                    <label class="star" title="Conditions apply">
+                                                        <input type="checkbox" class="star__box" form="faregrid"
+                                                               name="Star[@hub.Hub|@key|@occupancy.Occupancy]"
+                                                               value="1"
+                                                               checked="@Model.IsStarred(hub.Hub, key, occupancy.Occupancy, cell.HasConditions)"
+                                                               aria-label="Conditions apply to the @occupancy.Label price, @hub.Name @DepartureDateFormat.Short(departure.Date)" />
+                                                        <span class="star__mark" aria-hidden="true">*</span>
+                                                    </label>
+                                                }
+                                                else if (cell.HasConditions)
+                                                {
+                                                    <span class="star star--read" title="Conditions apply">
+                                                        <span class="star__mark">*</span>
+                                                    </span>
+                                                }
+
+                                                @* The struck-through figure. While the box is empty this
+                                                   follows the CALCULATED price, so it is drawn lighter -
+                                                   it is what the MRP would be, not what it is. It firms
+                                                   up by itself the moment a price is entered. *@
+                                                @if (cell.StrikeThrough.HasValue)
+                                                {
+                                                    <span class="faregrid__mrp @(cell.Published.HasValue ? "" : "faregrid__mrp--provisional")"
+                                                          title="@(cell.Published.HasValue
+                                                                   ? "Strike-through price"
+                                                                   : "What the strike-through would be, following the calculated price until one is entered")">@Inr.Format(cell.StrikeThrough.Value)</span>
+                                                }
+
+                                                @* What is on the website right now.
+
+                                                   Shown whenever it is not already the figure above it -
+                                                   so it is there for an empty box, which is the case it
+                                                   exists for, and for one that has been changed, and it
+                                                   stays out of the way on a settled cell where it would
+                                                   just be the same number printed twice.
+
+                                                   It replaces the old baseline arrow, which said much the
+                                                   same thing and could not be drawn at all once the
+                                                   published figure was allowed to be absent. *@
+                                                @if (cell.LivePrice.HasValue
+                                                     && cell.LivePrice != cell.Published)
+                                                {
+                                                    <span class="faregrid__lastpub" title="On the website now">
+                                                        <span class="faregrid__lastpub-label">last published</span>
+                                                        @Inr.Format(cell.LivePrice.Value)
+                                                    </span>
+                                                }
+
+                                                @if (cell.IsOverridden && cell.Published != cell.Calculated)
+                                                {
+                                                    <span class="faregrid__delta">
+                                                        @Inr.FormatSigned(cell.Published.Value - cell.Calculated.Value) vs calc
+                                                    </span>
+                                                }
+                                            }
+                                        </div>
+                                    }
+
+                                    <div class="faregrid__action">
+                                        @* Send this departure's fares back. A reason is asked
+                                           for because "the fare is wrong" without one is a
+                                           round trip nobody can act on - so the button opens a
+                                           small form rather than firing on a single click.
+
+                                           A <details> rather than a dialog: it works with the
+                                           script blocked, and the popover is positioned out of
+                                           the row so it cannot stretch it. *@
+                                        @if (Me.IsProductExecutive && permissions.IsEditing
+                                             && departure.IsActive && hub.IsActive && !isHeld)
+                                        {
+                                            <details class="rowmenu queryform">
+                                                <summary class="iconbtn iconbtn--query"
+                                                         title="Send these fares back to air-ticketing">
+                                                    <st-icon name="rotate-ccw" class="icon--14" />
+                                                </summary>
+                                                <div class="rowmenu__pop queryform__pop">
+                                                    <form method="post" asp-action="QueryFare"
+                                                          asp-route-code="@revision.Code"
+                                                          asp-route-edit="true" asp-route-open="@Model.Open"
+                                                          asp-route-hub="@hub.Hub"
+                                                          asp-route-date="@key">
+                                                        <div class="queryform__title">
+                                                            Send back to air-ticketing
+                                                        </div>
+                                                        <div class="queryform__sub">
+                                                            @hub.Name · @DepartureDateFormat.Short(departure.Date)
+                                                            — this holds all @occupancies.Count prices on this date
+                                                        </div>
+
+                                                        <label class="queryform__label" for="band-@hub.Hub-@key">Which fare</label>
+                                                        @* Only the bands this hub actually quotes. On a
+                                                           land-only hub "all three" would name two fares
+                                                           that do not exist, and a query raised against
+                                                           one would hold the departure for a figure
+                                                           nobody can ever supply. *@
+                                                        <select class="field" id="band-@hub.Hub-@key" name="band">
+                                                            @if (hub.HasPassengerAirfare)
+                                                            {
+                                                                <option value="">All three</option>
+                                                                <option value="adult">Adult + TM</option>
+                                                                <option value="child">Child</option>
+                                                                <option value="infant">Infant</option>
+                                                            }
+                                                            else
+                                                            {
+                                                                <option value="adult">Tour manager</option>
+                                                            }
+                                                        </select>
+
+                                                        <label class="queryform__label" for="why-@hub.Hub-@key">Why</label>
+                                                        <textarea class="field" id="why-@hub.Hub-@key" name="reason" rows="3"
+                                                                  placeholder="What looks wrong, so they can check the right thing."></textarea>
+
+                                                        <button type="submit" class="btn btn--sm btn--danger"
+                                                                data-busy="Sending…">
+                                                            Send back
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </details>
+                                        }
+
+                                        @if (permissions.CanChangeStructure)
+                                        {
+                                            @* Its own form, not the fare grid's.
+
+                                               This used to be form="faregrid" with a formaction, so
+                                               pressing it posted every price and fare on the page to
+                                               OnPostDepartureActiveAsync - which takes hub, date and
+                                               active, and ignores the rest. Everything typed and not
+                                               yet saved went with it, silently: submitting the grid
+                                               clears the unsaved-changes flag, so even the warning
+                                               that exists for this stayed quiet.
+
+                                               Posting only what it needs means the flag survives, and
+                                               somebody about to lose typed prices is now asked first. *@
+                                            <form method="post" asp-action="DepartureActive"
+                                                  asp-route-code="@revision.Code"
+                                                  asp-route-edit="@permissions.IsEditing"
+                                                  asp-route-open="@Model.Open"
+                                                  asp-route-hub="@hub.Hub"
+                                                  asp-route-date="@key"
+                                                  asp-route-active="@(!departure.IsActive)"
+                                                  style="display:inline;">
+                                                <button type="submit"
+                                                        class="iconbtn @(departure.IsActive ? "" : "iconbtn--restore")"
+                                                        title="@(departure.IsActive ? "Remove departure date" : "Restore departure date")">
+                                                    <st-icon name="@(departure.IsActive ? "x" : "rotate-ccw")" class="icon--14" />
+                                                </button>
+                                            </form>
+                                        }
+                                    </div>
+
+                                </div>
+                            }
+                            </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (permissions.CanEditFares)
+    {
+        @* The same Save as the one in the panel head. It is repeated at the
+           bottom because the grid is long and nobody should have to scroll
+           back up to commit what they just typed. *@
+        <div class="gridsave">
+            <span class="muted--sm" style="color:var(--ink-muted-3);">
+                Saves every hub open on this page · only figures you changed are written
+            </span>
+            <button type="submit" form="faregrid" class="btn btn--save btn--sm"
+                    data-busy="Saving…">Save all hubs</button>
+        </div>
+    }
+</div>
+
+@* ── 03 · Note and submit ───────────────────────────────────────────── *@
+<div class="card">
+    <div class="card__head">
+        <span class="card__step">03</span>
+        <span class="card__title">
+            @(Me.IsAirTicketing ? "Fare note & submit to product team" : "Revision note & submit")
+        </span>
+        @if (Me.IsAirTicketing)
+        {
+            <span class="card__sub">Product team sets the published selling price</span>
+        }
+    </div>
+
+    <form method="post" id="submitfares" asp-action="SubmitFares" asp-route-code="@revision.Code"
+          asp-route-edit="@permissions.IsEditing" asp-route-open="@Model.Open" class="summary">
+        <div class="summary__note">
+            @if (Me.IsAirTicketing)
+            {
+                @* Air-ticketing writes TO the product team. That is a different
+                   note from the product team's own revision note, so it is a
+                   separate field and neither overwrites the other.
+
+                   The box starts EMPTY. It used to be seeded with the last
+                   note sent, which made one field do two jobs - "what I am
+                   writing now" and "what I sent last time" - and unless you
+                   selected all and deleted, last week's note went out again
+                   as this week's. What was sent before is history, and it
+                   belongs below, where you can read it but not re-send it by
+                   accident. *@
+                <div class="kicker" style="margin-bottom:7px;">Note to the product team</div>
+                <textarea class="textarea--note" name="note" rows="5"
+                          aria-label="Note to the product team"
+                          placeholder="Anything the product team should know about these fares — carrier changes, seasonal loading, fares still awaited."></textarea>
+
+                @if (!string.IsNullOrWhiteSpace(revision.FareNote))
+                {
+                    <div class="kicker" style="margin:14px 0 6px;">
+                        Last note you sent@(revision.FaresSubmittedUtc.HasValue
+                            ? " · " + DepartureDateFormat.Stamp(revision.FaresSubmittedUtc.Value.ToLocalTime())
+                            : "")
+                    </div>
+                    <div class="summary__note-read" style="min-height:0;">@revision.FareNote</div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(revision.CostBuild.Note))
+                {
+                    <div class="kicker" style="margin:14px 0 6px;">Note from the product team</div>
+                    <div class="summary__note-read" style="min-height:0;">@revision.CostBuild.Note</div>
+                }
+            }
+            else
+            {
+                @* This note travels with the change set to tech support and is
+                   what they read to understand why the prices moved.
+
+                   It had no input at all. CostBuildForm.Note bound, the
+                   command carried it and usp_SaveCostBuild wrote it - but
+                   nothing on the page ever posted one, so it saved as null
+                   every time and every change set raised from this screen went
+                   out with no note on it.
+
+                   It belongs to the cost build form above (form="costbuild"),
+                   because that is the row it is stored on. Rendered only in
+                   edit mode for the same reason the FX box is: posting that
+                   form while its number fields are spans would bind them as
+                   zero and wipe the cost build. *@
+                <div class="kicker" style="margin-bottom:7px;">Note for this change batch</div>
+
+                @if (permissions.CanEditCostBuild)
+                {
+                    <textarea class="textarea--note" form="costbuild" name="Note" rows="5"
+                              aria-label="Note for this change batch"
+                              placeholder="Why these prices moved — what tech support and the next person to open this tour should know.">@cost.Note</textarea>
+
+                    <div class="row row--tight" style="margin-top:8px;">
+                        <button type="submit" form="costbuild" class="btn btn--sm btn--save"
+                                data-busy="Saving…">Save note</button>
+                        <span class="muted--sm" style="color:var(--ink-muted-3);">
+                            Saves with the cost build above
+                        </span>
+                    </div>
+                }
+                else
+                {
+                    <div class="summary__note-read">
+                        @(string.IsNullOrWhiteSpace(cost.Note) ? "No note yet." : cost.Note)
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(revision.FareNote))
+                {
+                    <div class="kicker" style="margin:14px 0 6px;">
+                        Note from air-ticketing@(string.IsNullOrWhiteSpace(revision.FaresSubmittedBy)
+                            ? "" : " · " + revision.FaresSubmittedBy)
+                    </div>
+                    <div class="summary__note-read" style="min-height:0;">@revision.FareNote</div>
+                }
+            }
+        </div>
+
+        <div class="summary__side">
+            <div class="summary__split">
+                <div>
+                    <div class="kicker">Changes vs live</div>
+                    <div class="muted--sm" style="color:var(--ink-muted-3); margin-top:2px;">
+                        @pending.PriceRows departure rows · @pending.Removals.Count withdrawals
+                    </div>
+                </div>
+                <div class="summary__count">@pending.TotalChanges</div>
+            </div>
+
+            <div class="summary__cta">
+                @if (Me.IsAirTicketing)
+                {
+                    @* Once fares have gone across, the button says so and stops
+                       pretending this is the first time. Sending again is still
+                       allowed - fares get revised - but it is a different act,
+                       and the wording should not hide that it already happened. *@
+                    @if (revision.FaresSubmittedUtc.HasValue)
+                    {
+                        <div class="cta-done">
+                            <st-icon name="check" class="icon--14 cta-done__tick" />
+                            <span>
+                                <b>Shared with the product team</b>
+                                <span class="cta-done__when num">
+                                    @DepartureDateFormat.Stamp(revision.FaresSubmittedUtc.Value.ToLocalTime())
+                                </span>
+                            </span>
+                        </div>
+
+                        <button type="submit" class="btn btn--block"
+                                data-busy="Sending…">
+                            Send updated fares <st-icon name="arrow-right" class="icon--14" />
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="submit" class="btn btn--primary btn--block"
+                                data-busy="Sending…">
+                            Submit fares to product team <st-icon name="arrow-right" class="icon--14" />
+                        </button>
+                    }
+                }
+                else
+                {
+                    @* Both ways out of this screen now live on the top bar,
+                       together, where they stay in reach at any scroll
+                       position. What is left here is why you might not be
+                       ready to take either of them. *@
+                    @if (Model.AwaitingFares > 0)
+                    {
+                        <div class="cta-note cta-note--warn">
+                            @Model.AwaitingFares
+                            @(Model.AwaitingFares == 1 ? "departure has" : "departures have")
+                            no airfare, so @(Model.AwaitingFares == 1 ? "it has" : "they have")
+                            no price and will be left out of the change set. The priced
+                            departures can still be submitted. Ask air-ticketing for
+                            @(Model.AwaitingFares == 1 ? "it" : "them").
+                        </div>
+                    }
+
+                    @* The other gate. Said here as well as on the review screen,
+                       because being turned back at the last step is worse than
+                       knowing before you set off. *@
+                    @if (Model.UnconfirmedPrices > 0)
+                    {
+                        <div class="cta-note cta-note--warn">
+                            @Model.UnconfirmedPrices
+                            @(Model.UnconfirmedPrices == 1 ? "price has" : "prices have")
+                            changed and @(Model.UnconfirmedPrices == 1 ? "has" : "have")
+                            not been confirmed, across @Model.UnconfirmedDepartures
+                            @(Model.UnconfirmedDepartures == 1 ? "departure" : "departures").
+                            Confirm @(Model.UnconfirmedPrices == 1 ? "it" : "them")
+                            in the grid above before sending.
+                        </div>
+                    }
+
+                    @if (Model.FareRequestedUtc.HasValue)
+                    {
+                        <div class="cta-note">
+                            Asked on
+                            @DepartureDateFormat.Stamp(Model.FareRequestedUtc.Value.ToLocalTime())
+                            · still open
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </form>
+</div>
+
+@* ── The version history panel ──────────────────────────────────────────
+
+   ONE copy of this markup, two presentations.
+
+   With the script blocked it is what it has always been: two ordinary cards at
+   the bottom of the page, reached by the #history-panel anchor on the Version
+   history button. With the script running, CSS lifts the same markup into a
+   panel on the right and the button opens it instead.
+
+   The alternative - rendering it twice and hiding one - is two copies of the
+   same list free to drift apart. *@
+@if (hasActivity || hasHistory || Model.FareQueries.Count > 0)
+{
+<div class="panel" id="history-panel" role="group" aria-label="Version history">
+    @* Only meaningful once this is a panel, so it is hidden until the script
+       says otherwise. *@
+    <div class="panel__head">
+        <div>
+            <div class="drawer__kicker">@revision.Code</div>
+            <div class="drawer__title">Version history</div>
+        </div>
+        <button type="button" class="drawer__close" data-panel-close
+                aria-label="Close version history">
+            <st-icon name="x" class="icon--16" />
+        </button>
+    </div>
+
+    <div class="panel__body">
+
+@* ── Fares sent back ────────────────────────────────────────────────── *@
+@if (Model.FareQueries.Count > 0)
+{
+    <div class="card card--spaced" id="queries">
+        <div class="card__head">
+            <span class="card__step">03b</span>
+            <span class="card__title">With air-ticketing</span>
+            <span class="card__sub">
+                @Model.FareQueries.Count
+                @(Model.FareQueries.Count == 1 ? "fare" : "fares")
+                sent back · these departures are out of the change set
+            </span>
+        </div>
+
+        <div class="rows">
+            @foreach (var query in Model.FareQueries)
+            {
+                <div class="queryrow">
+                    <div class="queryrow__head">
+                        <span class="chip chip--code">@query.Hub</span>
+                        <b>@DepartureDateFormat.Short(query.Date)</b>
+                        <span class="queryrow__band">
+                            @(string.IsNullOrEmpty(query.BandLabel) ? "all fares" : query.BandLabel)
+                            @if (query.Airfare.HasValue)
+                            {
+                                <span class="num">· @Inr.Format(query.Airfare.Value)</span>
+                            }
+                        </span>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(query.Reason))
+                    {
+                        <div class="queryrow__reason">“@query.Reason”</div>
+                    }
+
+                    <div class="queryrow__meta">
+                        @query.RaisedBy ·
+                        @DepartureDateFormat.Stamp(query.RaisedUtc.ToLocalTime())
+                    </div>
+
+                    @* Two ways out, and air-ticketing owns both. Changing the
+                       fare in the grid answers it by itself; this is the other
+                       answer - the figure was right all along. *@
+                    @if (Me.IsAirTicketing)
+                    {
+                        <form method="post" asp-action="ResolveQuery"
+                              asp-route-code="@revision.Code" asp-route-open="@Model.Open"
+                              asp-route-id="@query.Id" class="queryrow__resolve">
+                            <input class="field field--sm" name="note"
+                                   placeholder="Why it is right as quoted"
+                                   aria-label="Why the fare is correct as quoted" />
+                            <button type="submit" class="btn btn--xs" data-busy="Sending…">
+                                Re-quoted, unchanged
+                            </button>
+                        </form>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* ── 04 · Who changed what ──────────────────────────────────────────── *@
+@if (Model.Activity != null && Model.Activity.Count > 0)
+{
+    <div class="card card--spaced" id="activity">
+        <div class="card__head">
+            <span class="card__step">04</span>
+            <span class="card__title">Who changed what</span>
+            <span class="card__sub">
+                @Model.Activity.Count
+                @(Model.Activity.Count == 1 ? "change" : "changes")
+                on this tour · newest first
+            </span>
+        </div>
+
+        <div class="activity">
+            @foreach (var session in Model.Sessions)
+            {
+                <div class="activity__entry activity__entry--@session.ActorRole">
+                    <div class="activity__side">
+                        <span class="activity__role">
+                            @ActivityPhrasing.RoleLabel(session.ActorRole)
+                        </span>
+                        <span class="activity__when"
+                              title="@DepartureDateFormat.Stamp(session.OccurredLocal)">
+                            @ActivityPhrasing.Ago(session.OccurredLocal, DateTime.Now)
+                        </span>
+                    </div>
+
+                    <div class="activity__body">
+                        <div class="activity__head">
+                            <b>@session.ActorName</b>
+                            <span class="activity__action">
+                                @ActivityPhrasing.ActionLabel(session.Action)
+                            </span>
+                            @if (session.Changes.Count > 0)
+                            {
+                                <span class="activity__count">
+                                    @(session.Changes.Count == 1
+                                        ? "1 figure"
+                                        : session.Changes.Count + " figures")
+                                </span>
+                            }
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(session.Note))
+                        {
+                            <div class="activity__note">“@session.Note”</div>
+                        }
+
+                        @foreach (var change in session.Changes.Take(12))
+                        {
+                            var where = ActivityPhrasing.Where(change.HubName, change.DepartureDate);
+
+                            <div class="activity__line">
+                                @if (!string.IsNullOrEmpty(where))
+                                {
+                                    <span class="activity__where">@where</span>
+                                }
+                                <span class="activity__field">
+                                    @ActivityPhrasing.FieldLabel(change.Action, change.Field)
+                                </span>
+                                <span class="activity__move num">
+                                    @if (change.OldValue.HasValue)
+                                    {
+                                        <span class="activity__from">
+                                            @ActivityPhrasing.Value(change.Action, change.Field, change.OldValue)
+                                        </span>
+                                        <span class="activity__arrow">→</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="activity__from">not set</span>
+                                        <span class="activity__arrow">→</span>
+                                    }
+                                    <b>@ActivityPhrasing.Value(change.Action, change.Field, change.NewValue)</b>
+                                </span>
+                            </div>
+                        }
+
+                        @if (session.Changes.Count > 12)
+                        {
+                            <div class="activity__more">
+                                and @(session.Changes.Count - 12) more in the same save
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* ── 05 · Change sets raised ────────────────────────────────────────── *@
+@if (Model.History != null && Model.History.Count > 0)
+{
+    <div class="card card--spaced" id="history">
+        <div class="card__head">
+            <span class="card__step">05</span>
+            <span class="card__title">Change sets raised</span>
+            <span class="card__sub">
+                @Model.History.Count
+                @(Model.History.Count == 1 ? "change set" : "change sets")
+                sent to tech support · newest first
+            </span>
+        </div>
+
+        <div class="scroller">
+            <div class="history">
+                @* "Note" was one column doing three jobs - the note, who
+                   raised it and when. Split, so each has its own column and
+                   the note gets the full width of a second line. *@
+                <div class="grid grid--head history__row">
+                    <div class="cell--pad">Version change</div>
+                    <div class="cell--pad">Change set ID</div>
+                    <div class="cell--pad">Rows</div>
+                    <div class="cell--pad">Status</div>
+                    <div class="cell--pad">Raised by</div>
+                    <div class="cell--pad">Date raised</div>
+                </div>
+
+                <div class="rows">
+                @foreach (var set in Model.History)
+                {
+                    var state = ChangeSetStates.Evaluate(set.TotalRows, set.CompletedRows, set.IsApplied);
+
+                    @* A div, not an anchor, and for the reason the products
+                       list learned the hard way: a link may not contain a
+                       link. This row now carries a "view vNN" link inside it,
+                       and while the row itself was an <a> the parser closed it
+                       at that point and spilled every cell out as a sibling -
+                       which left the grid with one child and the whole card
+                       stacked in a single column.
+
+                       The reference chip is the real link and stretches over
+                       the row, so the whole row still clicks through. *@
+                    var raisedBy = set.SubmittedBy ?? "";
+                    var words = raisedBy.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    var initials = words.Length >= 2
+                        ? (words[0].Substring(0, 1) + words[1].Substring(0, 1)).ToUpperInvariant()
+                        : (raisedBy.Length > 0 ? raisedBy.Substring(0, 1).ToUpperInvariant() : "?");
+
+                    var canViewVersion = !string.IsNullOrEmpty(set.VersionAfter)
+                        && Model.VersionSnapshots.ContainsKey(set.VersionAfter)
+                        && Model.VersionSnapshots[set.VersionAfter];
+                    var raisedLocal = set.SubmittedUtc.ToLocalTime();
+
+                    <div class="grid history__row">
+                        <div class="cell cell--pad num history__versions">
+                            @* The version after is only stamped once the set is
+                               live, so an unapplied set has nowhere to point yet. *@
+                            @if (string.IsNullOrEmpty(set.VersionAfter))
+                            {
+                                <span class="history__from">from</span>
+                                <span>@set.VersionBefore</span>
+                            }
+                            else
+                            {
+                                <span>@set.VersionBefore</span>
+                                <span class="history__arrow" aria-hidden="true">→</span>
+                                <span>@set.VersionAfter</span>
+                            }
+                        </div>
+
+                        <div class="cell cell--pad">
+                            <a class="chip chip--code history__link"
+                               href="/IntlGit/ChangeSets/Detail?reference=@set.Reference">@set.Reference</a>
+                        </div>
+
+                        @* The drawer hides the column headers, so a bare number
+                           there says nothing. The word is carried in the markup
+                           rather than a CSS ::after so that one row reads
+                           "1 row" and not "1 rows". *@
+                        <div class="cell cell--pad num history__rows">
+                            <st-icon name="grid" class="icon--12 history__rowsicon" />@set.TotalRows<span
+                                class="history__rowslabel"> @(set.TotalRows == 1 ? "row" : "rows")</span>
+                        </div>
+
+                        <div class="cell cell--pad history__statuscell">
+                            <span class="chip @StatusChips.For(state)">
+                                @if (set.IsApplied)
+                                {
+                                    <st-icon name="check" class="icon--12 chip__icon" />
+                                }
+                                @ChangeSetStates.Label(state)
+                            </span>
+                            @if (!set.IsApplied)
+                            {
+                                <span class="muted--sm num history__progress">
+                                    @set.CompletedRows of @set.TotalRows applied
+                                </span>
+                            }
+                        </div>
+
+                        <div class="cell cell--pad history__who">
+                            <span class="avatar" aria-hidden="true">@initials</span>
+                            <span class="history__whoname">@raisedBy</span>
+                        </div>
+
+                        <div class="cell cell--pad history__when">
+                            <span class="num">@DepartureDateFormat.Short(raisedLocal)</span>
+                            <span class="muted--sm num history__time">@raisedLocal.ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture)</span>
+                        </div>
+
+                        @* Second line, spanning the row: what the change was
+                           for, and the way back into the version it produced.
+                           The note had a column of its own and was the reason
+                           every row was as tall as its longest sentence. *@
+                        @if (canViewVersion || !string.IsNullOrWhiteSpace(set.Note))
+                        {
+                            <div class="cell history__second">
+                                @if (canViewVersion)
+                                {
+                                    <a class="history__viewversion"
+                                       href="/IntlGit/Version?code=@revision.Code&version=@set.VersionAfter"
+                                       title="Open the whole product page as it stood at @set.VersionAfter">
+                                        View @set.VersionAfter <st-icon name="arrow-right" class="icon--12" />
+                                    </a>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(set.Note))
+                                {
+                                    <span class="history__note">@set.Note</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+    </div>
+</div>
+}
+
+@section Scripts {
+    @* The script is told where to ask for prices rather than assembling the
+       URL itself, and whether this role types published prices or only reads
+       them - both are decisions this page already made. *@
+    <script src="~/intlgit/js/workspace.js" asp-append-version="true"
+            data-preview-url="@Model.PreviewUrl"
+            data-page-path="/IntlGit/Revision"
+            data-price-editable="@(Model.Permissions.CanEditPublishedPrice ? "true" : "false")"></script>
+}
+
+@if (permissions.CanEditPublishedPrice)
+{
+    @* Asked before the save goes, when there are prices with no figure in them.
+
+       Saving blanks is a perfectly ordinary thing to do - you might be waiting
+       on a decision, or halfway through a hub. The problem was never that it
+       was allowed; it was that nothing said what it meant, and those departures
+       quietly did not reach tech support.
+
+       Hidden until the script needs it. With the script blocked it never opens
+       and the same sentence arrives as a toast after the save instead - the
+       information either way, a second later rather than a second earlier. *@
+    <div class="modal" id="blankprices" hidden>
+        <div class="modal__box" role="dialog" aria-modal="true"
+             aria-labelledby="blankprices-title" aria-describedby="blankprices-body">
+            <h2 class="modal__title" id="blankprices-title">
+                Published price cells are still blank
+            </h2>
+            <p class="modal__body" id="blankprices-body">
+                <b><span data-blank-count>0</span></b> price cells have no figure yet.
+                Their departures will not go to tech support until they do.
+            </p>
+            <div class="modal__actions">
+                <button type="button" class="btn" data-blank-cancel autofocus>
+                    Go back and add published prices
+                </button>
+                <button type="submit" class="btn btn--primary" form="faregrid"
+                        data-blank-confirm>
+                    Yes, save
+                </button>
+            </div>
+        </div>
+    </div>
+}

@@ -1,0 +1,36 @@
+@inject CurrentUser Me
+@inject Stpl.PriceManagement.Areas.Core.Services.NotificationService Notifications
+@{
+    /*
+        The bell, top-right of every screen.
+
+        It sits in the top bar rather than the navigation rail because that is
+        where people look for it, and on every screen rather than just the
+        landing pages because a fare coming back should reach you wherever you
+        happen to be. On the products list it lands in the corner the rail
+        used to point at from the side.
+
+        The count is fetched here, per render. That is one small call added to
+        every page - and CountUnreadAsync swallows its own failures and
+        answers zero, so a database having a bad day costs you the badge and
+        never the page.
+    */
+    var unread = Me.IsSignedIn
+        ? await Notifications.CountUnreadAsync(Me.UserId, Context.RequestAborted)
+        : 0;
+
+    var label = unread == 0
+        ? "Notifications"
+        : unread + (unread == 1 ? " unread notification" : " unread notifications");
+}
+
+<a class="bell @(unread > 0 ? "bell--unread" : "")"
+   href="/Core/Notifications" title="@label" aria-label="@label">
+    <st-icon name="bell" class="icon--16" />
+    @if (unread > 0)
+    {
+        @* Capped at 9+. The exact number stops mattering above a handful, and
+           a three-digit badge changes the width of the bar it sits in. *@
+        <span class="bell__count" aria-hidden="true">@(unread > 9 ? "9+" : unread.ToString())</span>
+    }
+</a>

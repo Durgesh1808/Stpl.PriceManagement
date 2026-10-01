@@ -1,0 +1,64 @@
+@model LoginViewModel
+@{
+    ViewData["Title"] = "Sign in";
+
+    // No sidebar, no breadcrumbs, no role chip: none of them mean anything to
+    // somebody who is not signed in yet.
+    Layout = "_LayoutBare";
+}
+
+<main class="signin">
+    <div class="signin__card">
+
+        <div class="signin__brand">
+            <span class="signin__mark" aria-hidden="true">ST</span>
+            <span class="signin__brandtext">
+                <span class="signin__org">Southern Travels</span>
+                <span class="signin__dept">Product &amp; Pricing</span>
+            </span>
+        </div>
+
+        <h1 class="signin__title">Sign in</h1>
+        <p class="signin__lede">International tour pricing, fares and website updates.</p>
+
+        @if (Model.Error != null)
+        {
+            @* One sentence, the same for every refusal. Which of "no such
+               address", "wrong password" or "no password set" it was is
+               deliberately not said - between them they would let anybody
+               find out who works here and which accounts are worth trying. *@
+            <div class="banner banner--danger signin__error" role="alert">
+                <st-icon name="alert-triangle" class="icon--14" />
+                <span>@Model.Error</span>
+            </div>
+        }
+
+        <form method="post" class="signin__form">
+            <input type="hidden" asp-for="ReturnUrl" />
+
+            <div class="signin__row">
+                <label class="signin__label" for="email">Email</label>
+                <input class="field signin__field" id="email" name="Email" type="email"
+                       value="@Model.Email" autocomplete="username"
+                       autocapitalize="off" spellcheck="false"
+                       autofocus required />
+            </div>
+
+            <div class="signin__row">
+                <label class="signin__label" for="password">Password</label>
+                <input class="field signin__field" id="password" name="Password" type="password"
+                       autocomplete="current-password" required />
+            </div>
+
+            <button type="submit" class="btn btn--save signin__submit" data-busy="Signing in…">
+                Sign in
+            </button>
+        </form>
+
+        <p class="signin__help">
+            No account, or locked out? Ask whoever set up your access.
+        </p>
+    </div>
+
+    <p class="signin__foot">Southern Travels International &middot; internal use only</p>
+</main>

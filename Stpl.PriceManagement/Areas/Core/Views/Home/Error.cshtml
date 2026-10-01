@@ -1,0 +1,76 @@
+@model ErrorViewModel
+@{
+    ViewData["Title"] = Model.Title;
+}
+
+@*
+    Deliberately plain, and deliberately quiet.
+
+    Somebody reaching this page has already had something fail on them, and the
+    screen's job is to say what happened in their own terms, give them one
+    obvious thing to press, and get out of the way. No exception, no stack
+    trace, no type names - those go to the log, matched by the reference below.
+*@
+
+<div class="page-head">
+    <div>
+        <h1 class="page-title">@Model.Title</h1>
+        <div class="page-sub">@Model.Explanation</div>
+    </div>
+</div>
+
+<div class="card card--spaced" style="max-width:640px;">
+    <div class="card__head">
+        <st-icon name="@(Model.IsServiceDown ? "clock" : "info")" class="icon--20" />
+        <span class="card__title">
+            @(Model.IsServiceDown ? "Nothing has been lost" : "What to do next")
+        </span>
+    </div>
+
+    <div style="padding:14px 16px 4px; font-size:14px; line-height:1.6; color:var(--ink-strong);">
+        @if (Model.IsServiceDown)
+        {
+            <p style="margin:0 0 12px;">
+                Work you had already saved is safe. Anything you were part-way
+                through typing will still be on the screen when you go back.
+            </p>
+            <p style="margin:0 0 12px;">
+                If it is still not answering in a few minutes, tell whoever looks
+                after the system — it is a problem at their end, not yours.
+            </p>
+        }
+        else
+        {
+            <p style="margin:0 0 12px;">
+                Go back and try once more. If the same thing happens again,
+                report it with the reference below so it can be found in the log.
+            </p>
+        }
+
+        <div class="row" style="gap:8px; margin:16px 0 4px;">
+            @if (Model.ReturnPath != null)
+            {
+                <a class="btn btn--primary" href="@Model.ReturnPath">
+                    <st-icon name="rotate-ccw" class="icon--14" /> Try again
+                </a>
+            }
+
+            @* Only where it is somewhere else to go. When the page that failed
+               WAS the products list, two buttons pointing at the same address
+               is a choice that is not one. *@
+            @if (!string.Equals(Model.ReturnPath, "/IntlGit/Products", StringComparison.OrdinalIgnoreCase))
+            {
+                <a class="btn" href="/IntlGit/Products">
+                    <st-icon name="grid" class="icon--14" /> Back to products
+                </a>
+            }
+        </div>
+    </div>
+
+    <div style="padding:12px 16px; border-top:1px solid var(--rule-soft);">
+        <span class="muted muted--sm">Reference</span>
+        <div class="num" style="font-size:12px; color:var(--ink-muted); word-break:break-all;">
+            @Model.RequestId
+        </div>
+    </div>
+</div>

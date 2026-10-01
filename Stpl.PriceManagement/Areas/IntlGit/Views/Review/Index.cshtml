@@ -1,0 +1,447 @@
+@model ReviewViewModel
+@{
+    var revision = Model.Revision;
+    var pending = Model.Pending;
+    var occupancies = revision.CostBuild.Occupancies.OrderBy(o => o.SortOrder).ToList();
+
+    @* A pending cell carries the occupancy CODE; the column headings above it
+       carry the label. This is the one place they are joined, so a cell's
+       caption on the phone layout reads the same as its column does here.
+       Falls back to the code rather than throwing: a cell for an occupancy the
+       cost build no longer lists would otherwise take the page down. *@
+    var occupancyLabels = occupancies
+        .GroupBy(o => o.Occupancy)
+        .ToDictionary(g => g.Key, g => g.First().Label);
+    Func<string, string> labelFor = code =>
+        code != null && occupancyLabels.ContainsKey(code) ? occupancyLabels[code] : code;
+
+    ViewData["Title"] = revision.Code + " change set review";
+    ViewData["Crumbs"] = Model.Crumbs;
+
+    var shortName = revision.Name.Split(" — ")[0];
+}
+
+@* The same two ways out the revision screen has, on the row that is already
+   sticky. This screen is reached from the tour and is a dead end without
+   them: the breadcrumb's Products link is one line of small text, which is
+   not the same as a control you can aim at. *@
+@section TopBarActions {
+    <div class="topbar__actions">
+        <a class="linkbtn" href="/IntlGit/Revision?code=@revision.Code">
+            <st-icon name="chevron-left" class="icon--14" /> Back to the tour
+        </a>
+
+        <a class="linkbtn" href="/IntlGit/Products">
+            <st-icon name="chevron-left" class="icon--14" /> Back to products
+        </a>
+    </div>
+}
+
+<div class="page-head">
+    <div>
+        <h1 class="page-title page-title--sm">Change set review</h1>
+        <div class="page-sub page-sub--sm">
+            @revision.Code · @shortName · @pending.TotalChanges changes
+        </div>
+    </div>
+</div>
+
+@if (Model.InFlight != null && !Model.InFlight.IsApplied)
+{
+    @* Context, not a blocker. A change made after submitting becomes its own
+       request - see the note in the submit banner below. *@
+    <div class="banner banner--info">
+        <span style="font-weight:600;">Already with tech support</span>
+        <span>
+            <strong>@Model.InFlight.Reference</strong> was submitted on
+            @DepartureDateFormat.Short(Model.InFlight.SubmittedUtc.ToLocalTime()) and is
+            @Model.InFlight.CompletedRows of @Model.InFlight.TotalRows applied.
+
+            @* Named because more than one is allowed, and because "is anything
+               outstanding" is the question this banner exists to answer. One
+               reference alone answered it wrongly whenever there were two. *@
+            @if (Model.OutstandingSets > 1)
+            {
+                <text>
+                    <strong>@(Model.OutstandingSets - 1) other</strong>
+                    @(Model.OutstandingSets == 2 ? "request is" : "requests are")
+                    also outstanding on this tour.
+                </text>
+            }
+        </span>
+        <a class="linkbtn" href="/IntlGit/ChangeSets/Detail?reference=@Model.InFlight.Reference">
+            Open it <st-icon name="arrow-right" class="icon--14" />
+        </a>
+    </div>
+}
+
+@* A departure with no airfare has no price, so it is left out of this change
+   set - the priced departures can still go. A notice, not a block. *@
+@if (Model.BlockedByMissingFares)
+{
+    <div class="banner banner--warn">
+        <span class="banner__dot" aria-hidden="true"></span>
+        <div>
+            <strong>
+                @Model.AwaitingFares
+                @(Model.AwaitingFares == 1 ? "departure has" : "departures have")
+                no airfare.
+            </strong>
+            Without a fare there is no price, so
+            @(Model.AwaitingFares == 1 ? "it is" : "they are") left out of this change
+            set. Everything that is priced can still be submitted now; ask
+            air-ticketing for the missing fares and send the rest in a later set.
+        </div>
+        <a class="linkbtn" href="/IntlGit/Revision?code=@Model.Code&edit=true">
+            Open the tour <st-icon name="arrow-right" class="icon--14" />
+        </a>
+    </div>
+}
+
+@* Held back, and said out loud.
+
+   These departures are deliberately NOT in the list below. A row quietly
+   missing from what you are about to submit is the kind of thing people find
+   out about a week later, so the screen that shows the change list also has to
+   say what it is leaving out. *@
+@if (Model.Held.Count > 0)
+{
+    <div class="banner banner--warn">
+        <span class="banner__dot" aria-hidden="true"></span>
+        <div>
+            <strong>
+                @Model.HeldDepartures
+                @(Model.HeldDepartures == 1 ? "departure is" : "departures are")
+                with air-ticketing and not in this change set.
+            </strong>
+            <ul class="banner__list">
+                @foreach (var query in Model.Held)
+                {
+                    <li>
+                        <b>@query.HubName · @DepartureDateFormat.Short(query.Date)</b>
+                        — @(string.IsNullOrEmpty(query.BandLabel) ? "all fares" : query.BandLabel)
+                        @if (!string.IsNullOrWhiteSpace(query.Reason))
+                        {
+                            <text>: “@query.Reason”</text>
+                        }
+                    </li>
+                }
+            </ul>
+            Everything else can still go. @(Model.HeldDepartures == 1 ? "It" : "They")
+            will join the next change set once air-ticketing answers.
+        </div>
+    </div>
+}
+
+@* The other reason a departure is missing, and the one nobody else can fix.
+   Kept as its own banner rather than folded in above: these are not waiting on
+   air-ticketing, they are waiting on the person reading this screen, and one
+   list would send them off to chase a fare that is already in. *@
+@if (Model.Unpriced.Count > 0)
+{
+    <div class="banner banner--warn">
+        <span class="banner__dot" aria-hidden="true"></span>
+        <div>
+            <strong>
+                @Model.Unpriced.Count
+                @(Model.Unpriced.Count == 1 ? "departure has" : "departures have")
+                no agreed price and @(Model.Unpriced.Count == 1 ? "is" : "are")
+                not in this change set.
+            </strong>
+            <ul class="banner__list">
+                @foreach (var date in Model.Unpriced)
+                {
+                    <li>
+                        <b>@date.HubName · @DepartureDateFormat.Short(date.Date)</b>
+                        — @date.BlankCount of @Model.OccupancyCount
+                        @(date.BlankCount == 1 ? "price is" : "prices are") still blank
+                    </li>
+                }
+            </ul>
+            The website table prices a whole date at once, so one blank holds all
+            of them. Price them on the revision screen, or set the hub to
+            “same as calculated SP”, and they will go with the next change set.
+        </div>
+    </div>
+}
+
+@* The second gate. A fare or a cost moving under a price is invisible - the
+   figure recalculates itself and looks exactly as settled as it did before -
+   so somebody has to put it back in before it can go to the website. *@
+@if (Model.BlockedByUnconfirmed)
+{
+    <div class="banner banner--alert">
+        <span class="banner__dot" aria-hidden="true"></span>
+        <div>
+            <strong>
+                @Model.Unconfirmed
+                @(Model.Unconfirmed == 1 ? "price has" : "prices have")
+                not been confirmed.
+            </strong>
+            The figures underneath @(Model.Unconfirmed == 1 ? "it" : "them") moved,
+            across @Model.UnconfirmedDepartures
+            @(Model.UnconfirmedDepartures == 1 ? "departure" : "departures"),
+            so @(Model.Unconfirmed == 1 ? "it is" : "they are") waiting on somebody
+            to settle @(Model.Unconfirmed == 1 ? "it" : "them"). In the grid
+            @(Model.Unconfirmed == 1 ? "it is" : "they are") an empty box with the
+            calculated price above it: type a figure, or set the hub to
+            “same as calculated SP” to publish at the calculated one.
+        </div>
+        <a class="linkbtn" href="/IntlGit/Revision?code=@Model.Code&edit=true#hubs">
+            Confirm in the grid <st-icon name="arrow-right" class="icon--14" />
+        </a>
+    </div>
+}
+
+@if (Model.CanSubmit)
+{
+    <div class="banner banner--warn">
+        <div>
+            @if (Model.InFlight != null && !Model.InFlight.IsApplied)
+            {
+                <text>
+                    These @pending.TotalChanges changes are on top of
+                    <strong>@Model.InFlight.Reference</strong>, and will go to tech support as a
+                    <strong>separate request</strong>. A submitted set is never edited.
+                </text>
+            }
+            else
+            {
+                <text>
+                    Review before submitting. Once submitted the set locks and appears in the tech
+                    support work list — it cannot be edited afterwards.
+                </text>
+            }
+        </div>
+        <div class="row row--tight">
+            <a class="btn" href="/IntlGit/Revision?code=@revision.Code"><st-icon name="chevron-left" class="icon--14" /> Keep editing</a>
+            <form method="post" asp-action="Submit" asp-route-code="@revision.Code">
+                <button type="submit" class="btn btn--primary"
+                        data-busy="Submitting…">Submit to tech support</button>
+            </form>
+        </div>
+    </div>
+}
+else if (pending.TotalChanges == 0 && !Model.HasWork)
+{
+    @* Green only when there is genuinely nothing outstanding.
+
+       "No prices have changed" was true of a tour waiting on airfares and
+       entirely beside the point: a departure with no fare has no price cells,
+       so it moves no figures and counts as no change, and the screen said the
+       week's work was done. The missing-fare banner above now carries that
+       case, so this is the last word rather than a contradiction of it. *@
+    <div class="banner banner--ok">
+        Nothing to submit — no prices have changed since @revision.Version.
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(revision.CostBuild.Note))
+{
+    <div class="card card--spaced" style="padding:11px 14px;">
+        <div class="kicker" style="margin-bottom:4px;">Note from product team</div>
+        <div style="font-size:13px; line-height:1.55; color:#3C4B60;">@revision.CostBuild.Note</div>
+    </div>
+}
+
+@* ── A · Prices to update ───────────────────────────────────────────── *@
+<div class="card card--spaced">
+    <div class="card__head">
+        <span class="card__step">A</span>
+        <span class="card__title">Prices to update</span>
+        <span class="card__sub">
+            Published price with its strike-through · every figure is shown, the changed ones marked
+        </span>
+    </div>
+
+    <div class="legend">
+        <span class="legend__item">
+            <i class="legend__swatch legend__swatch--changed" aria-hidden="true"></i>
+            <b>Changed</b> — update this figure on the website
+        </span>
+        <span class="legend__item">
+            <i class="legend__swatch legend__swatch--same" aria-hidden="true"></i>
+            <b>Unchanged</b> — already correct, leave it as it is
+        </span>
+        <span class="legend__item">
+            <span class="chip chip--new chip--new-sm" aria-hidden="true">New date</span>
+            <b>Not on the website yet</b> — tech support creates the date, then its prices
+        </span>
+        <span class="legend__item">
+            <span class="legend__tick" aria-hidden="true"><st-icon name="square" class="icon--16" /></span>
+            Tick the <b>departure row</b> once all its prices are on the website
+        </span>
+        <span class="legend__note">
+            “Price live today” is what the website shows now — reference only, never marked.
+            A dash means there is nothing live yet.
+        </span>
+    </div>
+
+    @foreach (var hub in pending.Hubs)
+    {
+        <div class="hub">
+            <div class="cs__hubhead">
+                <span class="hub__name">@hub.Name</span>
+                @if (hub.IsNewHub)
+                {
+                    <span class="chip chip--new">New hub — add all departures</span>
+                }
+                <span class="hub__meta">
+                    @hub.Departures.Count @(hub.Departures.Count == 1 ? "departure" : "departures")
+                    @(hub.IsNewHub ? "to add" : "changed")
+                </span>
+            </div>
+
+            <div class="scroller">
+                <div class="cs__grid">
+                    <div class="grid grid--head cs__row">
+                        <div style="padding:7px 8px; text-align:center;"><st-icon name="check" class="icon--14" label="Updated" /></div>
+                        <div class="cell--head">Departure</div>
+                        <div class="cell--head">Line</div>
+                        @foreach (var occupancy in occupancies)
+                        {
+                            <div class="cell--head cell--r">@occupancy.Label</div>
+                        }
+                    </div>
+
+                    @foreach (var departure in hub.Departures)
+                    {
+                        <div class="cs__group">
+                            <div class="grid cs__row cs__line--pub">
+                                <div class="tickbox">
+                                    <span class="tick tick--locked" aria-hidden="true"><st-icon name="square" class="icon--20" /></span>
+                                </div>
+                                <div class="cs__date">
+                                    @DepartureDateFormat.Short(departure.Date)
+
+                                    @* Tech support will have to create this date before
+                                       there is anywhere to put a price, so say so here too -
+                                       this screen is the preview of what they receive. *@
+                                    @if (departure.IsNewDeparture)
+                                    {
+                                        <span class="chip chip--new chip--new-sm"
+                                              title="Not on the website yet — tech support adds the date, then these prices">
+                                            New date
+                                        </span>
+                                    }
+                                </div>
+                                <div class="cs__linelabel cs__linelabel--pub">Published</div>
+                                @foreach (var cell in departure.Cells)
+                                {
+                                    <div class="cs__cell" data-label="@labelFor(cell.Occupancy)">
+                                        @* Changed figures carry the mark; unchanged keep the
+                                           same footprint so the column stays aligned. *@
+                                        <span class="@(cell.HasChanged ? "mark" : "unmark")">
+                                            <span class="cs__value">@Inr.Format(cell.Published)</span>
+                                            @* Shown here as well as on the change set, so the
+                                               star is checked before it is sent rather than
+                                               after tech support has published it. *@
+                                            @if (cell.HasConditions)
+                                            {
+                                                <span class="star star--read star--inline"
+                                                      title="Conditions apply">
+                                                    <span class="star__mark">*</span>
+                                                </span>
+                                            }
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="grid cs__row cs__line--mrp">
+                                <div></div>
+                                <div></div>
+                                <div class="cs__linelabel cs__linelabel--mrp">Strike-through</div>
+                                @foreach (var cell in departure.Cells)
+                                {
+                                    <div class="cs__cell" data-label="@labelFor(cell.Occupancy)">
+                                        <span class="@(cell.HasChanged ? "mark" : "unmark")">
+                                            <span class="cs__value cs__value--mrp">@Inr.Format(cell.StrikeThrough)</span>
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="grid cs__row">
+                                <div></div>
+                                <div></div>
+                                <div class="cs__linelabel">Price live today</div>
+                                @foreach (var cell in departure.Cells)
+                                {
+                                    <div class="cs__cell" data-label="@labelFor(cell.Occupancy)">
+                                        @* Reference only — nobody types this, so it is never marked. *@
+                                        <span class="mark-plain">
+                                            <span class="cs__value cs__value--was">
+                                                @* What this change was measured against - the
+                                                   prices the last set was submitted with, if one
+                                                   is still with tech support, and otherwise what
+                                                   is live. A dash, not "new departure" six times
+                                                   over. *@
+                                                @{ var movedFrom = cell.BaselinePrice ?? cell.LivePrice; }
+                                                @(movedFrom.HasValue ? Inr.Format(movedFrom.Value) : "—")
+                                            </span>
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (pending.Hubs.Count == 0)
+    {
+        <div class="empty">No price changes in this revision yet.</div>
+    }
+</div>
+
+@* ── B · Remove from website ────────────────────────────────────────── *@
+@if (pending.Removals.Count > 0)
+{
+    <div class="card card--spaced scroller">
+        <div class="card__head">
+            <span class="card__step">B</span>
+            <span class="card__title">Remove from website</span>
+        </div>
+
+        <div class="grid grid--head removals__row">
+            <div style="padding:7px 8px; text-align:center;"><st-icon name="check" class="icon--14" label="Updated" /></div>
+            <div class="cell--head">Hub</div>
+            <div class="cell--head">Departure</div>
+            <div class="cell--head">What to do</div>
+            <div class="cell--pad cell--r">Price live today</div>
+        </div>
+
+        <div class="rows">
+        @foreach (var removal in pending.Removals)
+        {
+            <div class="grid removals__row">
+                <div class="tickbox"><span class="tick tick--locked" aria-hidden="true"><st-icon name="square" class="icon--20" /></span></div>
+                <div class="cell">@removal.Name</div>
+                <div class="cell num">
+                    @(removal.Date.HasValue
+                        ? DepartureDateFormat.Short(removal.Date.Value)
+                        : "All " + removal.DepartureCount + " departures")
+                </div>
+                <div class="cell">
+                    <span class="chip chip--off">
+                        @(removal.Kind == "hub" ? "Hub removed" : "Departure removed")
+                    </span>
+                </div>
+                <div class="cell cell--pad cell--r num"
+                     style="color:var(--ink-muted); text-decoration:line-through;">
+                    @(removal.LivePrice.HasValue ? Inr.Format(removal.LivePrice.Value) : "—")
+                </div>
+            </div>
+        }
+        </div>
+    </div>
+}
+
+<div class="card" style="padding:11px 14px; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+    <span class="muted--sm" style="color:var(--ink-muted);">
+        Tech support sees only published price and strike-through. Costs, FX and margin are not shared.
+    </span>
+</div>
