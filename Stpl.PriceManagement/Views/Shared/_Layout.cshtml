@@ -10,6 +10,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>@(ViewData["Title"] ?? "Product & Pricing") · Southern Travels</title>
+    <link rel="icon" href="~/common/images/favicon.ico" sizes="any" asp-append-version="true" />
+    <link rel="icon" type="image/png" href="~/common/images/favicon-32.png" sizes="32x32" asp-append-version="true" />
+    <link rel="apple-touch-icon" href="~/common/images/apple-touch-icon.png" asp-append-version="true" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet"
@@ -19,165 +22,165 @@
     @await RenderSectionAsync("Styles", required: false)
 </head>
 <body>
-@* The icon set. Hidden; every <st-icon> on the page points into it. *@
-<partial name="_IconSprite" />
+    @* The icon set. Hidden; every <st-icon> on the page points into it. *@
+    <partial name="_IconSprite" />
 
-<div class="app">
+    <div class="app">
 
-    <nav class="rail @(railOpen ? "" : "rail--collapsed")" aria-label="Main">
-        <div class="rail__brand">
-            <div class="rail__mark" aria-hidden="true">ST</div>
-            @if (railOpen)
-            {
-                <div style="min-width:0;">
-                    <div class="rail__org">Southern Travels</div>
-                    <div class="rail__dept">Product &amp; Pricing</div>
-                </div>
-            }
-        </div>
+        <nav class="rail @(railOpen ? "" : "rail--collapsed")" aria-label="Main">
+            <div class="rail__brand">
+                <img class="rail__logo" src="~/common/images/logo.png" alt="" aria-hidden="true" asp-append-version="true" />
+                @if (railOpen)
+                {
+                    <div style="min-width:0;">
+                        <div class="rail__org">Southern Travels</div>
+                        <div class="rail__dept">Product &amp; Pricing</div>
+                    </div>
+                }
+            </div>
 
-        <div class="rail__items">
-            @* One heading per pricing area (International GIT today), over the
+            <div class="rail__items">
+                @* One heading per pricing area (International GIT today), over the
                screens that work in it. Every role gets the heading - what sits
                under it differs, because each area gives a role only its own
                screens. See Infrastructure/Web/Navigation.cs to add an area. *@
-            @foreach (var navSection in AppNavigation.For(Me))
-            {
-                if (railOpen)
+                @foreach (var navSection in AppNavigation.For(Me))
                 {
-                    <div class="rail__section">@navSection.Title</div>
-                }
-                @* aria-label rather than aria-labelledby: the visible header is not
-                   rendered when the rail is collapsed. *@
-                <div class="rail__group" role="group" aria-label="@navSection.Title">
-                    @foreach (var item in navSection.Items)
+                    if (railOpen)
                     {
-                        var active = item.Match.Any(m => Context.Request.Path.StartsWithSegments(m));
-                        @* Named whatever the rail is doing: the label can be hidden by
+                        <div class="rail__section">@navSection.Title</div>
+                    }
+                    @* aria-label rather than aria-labelledby: the visible header is not
+                   rendered when the rail is collapsed. *@
+                    <div class="rail__group" role="group" aria-label="@navSection.Title">
+                        @foreach (var item in navSection.Items)
+                        {
+                            var active = item.Match.Any(m => Context.Request.Path.StartsWithSegments(m));
+                            @* Named whatever the rail is doing: the label can be hidden by
                            the cookie or by a narrow screen, so title and aria-label are
                            always emitted. *@
-                        <a class="rail__item @(active ? "rail__item--active" : "")"
-                           href="@item.Href"
-                           title="@item.Label"
-                           aria-label="@item.Label"
-                           aria-current="@(active ? "page" : null)">
-                            <span class="rail__icon"><st-icon name="@item.Icon" class="icon--18" /></span>
-                            @if (railOpen)
-                            {
-                                <span class="rail__label">@item.Label</span>
-                            }
-                        </a>
-                    }
-                </div>
-            }
-        </div>
+                            <a class="rail__item @(active ? "rail__item--active" : "")"
+                               href="@item.Href"
+                               title="@item.Label"
+                               aria-label="@item.Label"
+                               aria-current="@(active ? "page" : null)">
+                                <span class="rail__icon"><st-icon name="@item.Icon" class="icon--18" /></span>
+                                @if (railOpen)
+                                {
+                                    <span class="rail__label">@item.Label</span>
+                                }
+                            </a>
+                        }
+                    </div>
+                }
+            </div>
 
-        <div class="rail__foot">
-            @* The person, then their role. It was the role alone, because
+            <div class="rail__foot">
+                @* The person, then their role. It was the role alone, because
                there was no person - every one of the four tech support people
                was the string "Tech support". *@
-            @if (railOpen)
-            {
-                <div style="margin-bottom:9px;">
-                    <div class="rail__user">@(Me.DisplayName ?? Me.RoleName)</div>
-                    <div class="rail__userdept">@Me.RoleName</div>
-                    @* The only account screen there is. Everything else -
+                @if (railOpen)
+                {
+                    <div style="margin-bottom:9px;">
+                        <div class="rail__user">@(Me.DisplayName ?? Me.RoleName)</div>
+                        <div class="rail__userdept">@Me.RoleName</div>
+                        @* The only account screen there is. Everything else -
                        resetting a forgotten password, turning an account off
                        when somebody leaves - is run from the command line
                        ("dotnet Stpl.PriceManagement.dll account ...", see README). *@
-                    <a class="rail__account" href="/Core/Account/Password">Change password</a>
-                </div>
-            }
+                        <a class="rail__account" href="/Core/Account/Password">Change password</a>
+                    </div>
+                }
 
-            @* POST, with the antiforgery token the form tag helper adds. A
+                @* POST, with the antiforgery token the form tag helper adds. A
                sign-out on GET can be triggered by anything that makes a
                browser fetch a URL. *@
-            <form method="post" asp-area="Core" asp-controller="Account" asp-action="Logout">
-                <button type="submit" class="rail__switch" title="Sign out">
-                    @if (railOpen)
-                    {
-                        <text>Sign out</text>
-                    }
-                    else
-                    {
-                        <st-icon name="x" class="icon--16" label="Sign out" />
-                    }
-                </button>
-            </form>
+                <form method="post" asp-area="Core" asp-controller="Account" asp-action="Logout">
+                    <button type="submit" class="rail__switch" title="Sign out">
+                        @if (railOpen)
+                        {
+                            <text>Sign out</text>
+                        }
+                        else
+                        {
+                            <st-icon name="x" class="icon--16" label="Sign out" />
+                        }
+                    </button>
+                </form>
 
-            <form method="post" asp-area="Core" asp-controller="Account" asp-action="ToggleNav" asp-route-returnUrl="@(Context.Request.Path + Context.Request.QueryString)">
-                <button type="submit" class="rail__collapse"
-                        aria-label="@(railOpen ? "Collapse navigation" : "Expand navigation")">
-                    @* One chevron, flipped by CSS when the rail is closed - two
+                <form method="post" asp-area="Core" asp-controller="Account" asp-action="ToggleNav" asp-route-returnUrl="@(Context.Request.Path + Context.Request.QueryString)">
+                    <button type="submit" class="rail__collapse"
+                            aria-label="@(railOpen ? "Collapse navigation" : "Expand navigation")">
+                        @* One chevron, flipped by CSS when the rail is closed - two
                        symbols for the same idea is two things to keep in step. *@
-                    <st-icon name="chevron-left"
-                             class="icon--14 @(railOpen ? "" : "icon--flip")" />
-                    @if (railOpen)
-                    {
-                        <text>Collapse</text>
-                    }
-                </button>
-            </form>
-        </div>
-    </nav>
+                        <st-icon name="chevron-left"
+                                 class="icon--14 @(railOpen ? "" : "icon--flip")" />
+                        @if (railOpen)
+                        {
+                            <text>Collapse</text>
+                        }
+                    </button>
+                </form>
+            </div>
+        </nav>
 
-    <div class="app__main">
-        <div class="topbar">
-            <nav class="crumbs" aria-label="Breadcrumb">
-                @for (var i = 0; i < crumbs.Count; i++)
-                {
-                    var crumb = crumbs[i];
-                    if (crumb.Href == null)
+        <div class="app__main">
+            <div class="topbar">
+                <nav class="crumbs" aria-label="Breadcrumb">
+                    @for (var i = 0; i < crumbs.Count; i++)
                     {
-                        <span class="crumbs__item">@crumb.Label</span>
-                    }
-                    else
-                    {
-                        <a class="crumbs__link" href="@crumb.Href">@crumb.Label</a>
-                    }
+                        var crumb = crumbs[i];
+                        if (crumb.Href == null)
+                        {
+                            <span class="crumbs__item">@crumb.Label</span>
+                        }
+                        else
+                        {
+                            <a class="crumbs__link" href="@crumb.Href">@crumb.Label</a>
+                        }
 
-                    if (i < crumbs.Count - 1)
-                    {
-                        <span class="crumbs__sep" aria-hidden="true">/</span>
+                        if (i < crumbs.Count - 1)
+                        {
+                            <span class="crumbs__sep" aria-hidden="true">/</span>
+                        }
                     }
-                }
-            </nav>
+                </nav>
 
-            @* The right-hand end of the bar: whatever this page offers, then
+                @* The right-hand end of the bar: whatever this page offers, then
                the bell. The bell is rendered here rather than inside each
                page's TopBarActions so it cannot be forgotten on a new screen,
                and so it sits in the same corner on all of them. *@
-            <div class="topbar__right">
-                @RenderSection("TopBarActions", required: false)
-                <partial name="_NotificationBell" />
+                <div class="topbar__right">
+                    @RenderSection("TopBarActions", required: false)
+                    <partial name="_NotificationBell" />
+                </div>
             </div>
+
+            <main class="app__content">
+                @RenderBody()
+            </main>
         </div>
 
-        <main class="app__content">
-            @RenderBody()
-        </main>
-    </div>
-
-    @if (!string.IsNullOrEmpty(toast))
-    {
-        <div class="toast" role="status" aria-live="polite" id="toast">
-            <span class="toast__text">@toast</span>
-            @* Closed by site.js (data-dismiss). The inline onclick set the
+        @if (!string.IsNullOrEmpty(toast))
+        {
+            <div class="toast" role="status" aria-live="polite" id="toast">
+                <span class="toast__text">@toast</span>
+                @* Closed by site.js (data-dismiss). The inline onclick set the
                hidden attribute, which .toast's display:flex overrides, so the
                cross did nothing. The onclick stays as a fallback and removes
                the element outright rather than relying on [hidden]. *@
-            <button type="button" class="toast__close" aria-label="Dismiss" data-dismiss="toast"
-                    onclick="var t=document.getElementById('toast'); if (t) { t.remove(); }">
-                <st-icon name="x" class="icon--14" />
-            </button>
-        </div>
-    }
-</div>
+                <button type="button" class="toast__close" aria-label="Dismiss" data-dismiss="toast"
+                        onclick="var t=document.getElementById('toast'); if (t) { t.remove(); }">
+                    <st-icon name="x" class="icon--14" />
+                </button>
+            </div>
+        }
+    </div>
 
-@* Behaviour every screen gets. Page-specific scripts go in the Scripts
+    @* Behaviour every screen gets. Page-specific scripts go in the Scripts
    section below, which renders after this so they can rely on it. *@
-<script src="~/common/js/site.js" asp-append-version="true"></script>
+    <script src="~/common/js/site.js" asp-append-version="true"></script>
 
-@await RenderSectionAsync("Scripts", required: false)
+    @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
