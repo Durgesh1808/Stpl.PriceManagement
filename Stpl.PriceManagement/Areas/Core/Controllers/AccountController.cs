@@ -98,7 +98,10 @@ namespace Stpl.PriceManagement.Areas.Core.Controllers
                 new Claim(ClaimTypes.NameIdentifier, result.UserId.ToString()),
                 new Claim(ClaimTypes.Name, result.DisplayName ?? result.Email),
                 new Claim(ClaimTypes.Email, result.Email ?? string.Empty),
-                new Claim(ClaimTypes.Role, UserRoles.ClaimValue(role))
+                new Claim(ClaimTypes.Role, UserRoles.ClaimValue(role)),
+
+                // Which run of the application issued this sign-in - see AppInstance.
+                new Claim(AppInstance.ClaimType, AppInstance.Id)
             };
 
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);

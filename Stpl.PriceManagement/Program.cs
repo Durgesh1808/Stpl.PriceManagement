@@ -100,6 +100,10 @@ namespace Stpl.PriceManagement
                     options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
                         ? CookieSecurePolicy.SameAsRequest
                         : CookieSecurePolicy.Always;
+
+                    // A restart of the application signs everybody out: a
+                    // cookie issued by an earlier run is rejected here.
+                    options.Events.OnValidatePrincipal = AppInstance.ValidateAsync;
                 });
 
             builder.Services.AddHttpContextAccessor();
