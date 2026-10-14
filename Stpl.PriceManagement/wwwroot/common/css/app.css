@@ -5694,3 +5694,90 @@ body.bare {
         text-decoration: line-through;
         color: var(--ink-faint);
     }
+
+/* --- Tour manager departure hub -------------------------------------------
+   The hub the tour manager flies from, chosen in FX & cost build. Its
+   Adult + TM fare on each date is the tour manager's seat in every hub's
+   price on that date.
+   -------------------------------------------------------------------------- */
+
+.statcard__tm {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: var(--sp-2);
+}
+
+.statcard__tm-label {
+    font-size: var(--fs-2xs);
+    font-weight: var(--fw-semibold);
+    color: var(--ink-muted-2);
+}
+
+.statcard__tm-value {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    color: var(--ink-strong);
+}
+
+.statcard__tm-value--unset {
+    font-weight: var(--fw-normal);
+    font-style: italic;
+    color: var(--warn-ink);
+}
+
+.field--tmhub {
+    width: 100%;
+    max-width: 220px;
+    padding: 5px 8px;
+    font-size: var(--fs-sm);
+}
+
+    /* Mandatory: an empty choice reads as owed, not as optional. */
+   /* .field--tmhub:invalid {
+        border-color: var(--warn-rule);
+        background: var(--warn-bg);
+    }*/
+
+.chip--tm {
+    background: var(--tint-amber);
+    color: var(--tint-amber-ink);
+    border-color: var(--warn-rule);
+}
+
+/* Joining / Leaving: the tour manager's fare, read from the tour manager hub. */
+.faregrid__tmfare {
+    font-family: var(--num-font);
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-strong);
+    white-space: nowrap;
+}
+
+.faregrid__tmfare--missing {
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: normal;
+    font-style: italic;
+    color: var(--warn-ink);
+}
+
+.faregrid__tmsource,
+.faregrid__tmline {
+    display: block;
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--ink-muted-3);
+    white-space: nowrap;
+}
+
+.faregrid__tmline {
+    font-family: var(--num-font);
+    font-variant-numeric: tabular-nums;
+}
+
+.faregrid__tmline--missing {
+    color: var(--warn-ink);
+    font-style: italic;
+}

@@ -258,7 +258,7 @@
                 // Every part has to be there. One missing makes the total
                 // unknown, and an unknown total shows as nothing at all.
                 var known = landValue !== null && fxRate !== null
-                         && perPersonValue !== null && sharePerPerson !== null;
+                    && perPersonValue !== null && sharePerPerson !== null;
 
                 cells[i].textContent = known
                     ? indian.format(Math.round(landValue * fxRate + perPersonValue + sharePerPerson))
@@ -576,9 +576,48 @@
                 });
         };
 
+        /*
+            The tour manager's departure hub. Its Adult + TM fare on a date is
+            the tour manager's seat on EVERY hub's departure of that date, so
+            typing it moves more than its own row: the server preview answers
+            for all of those departures (usp_PreviewPrices), and the two places
+            that SHOW the figure - Joining / Leaving's tour manager cell and the
+            "TM ..." line under each other hub's adult fare - are redrawn here.
+        */
+        var tmHub = settings.getAttribute("data-tm-hub") || "";
+        var tmHubName = settings.getAttribute("data-tm-hub-name") || "";
+
+        var showTourManagerFare = function (date, raw) {
+            var cleaned = String(raw).replace(/,/g, "").trim();
+            var amount = cleaned === "" ? NaN : parseFloat(cleaned);
+            var known = !isNaN(amount);
+
+            var cells = document.querySelectorAll('[data-tm-date="' + date + '"]');
+            for (var c = 0; c < cells.length; c++) {
+                cells[c].textContent = known ? indian.format(amount) : "awaiting " + tmHubName + " fare";
+                cells[c].classList.toggle("faregrid__tmfare--missing", !known);
+            }
+
+            var lines = document.querySelectorAll('[data-tm-line="' + date + '"]');
+            for (var l = 0; l < lines.length; l++) {
+                lines[l].textContent = known
+                    ? "TM " + indian.format(amount) + " · " + tmHubName
+                    : "TM fare awaited · " + tmHubName;
+                lines[l].classList.toggle("faregrid__tmline--missing", !known);
+            }
+        };
+
         for (var f = 0; f < fareInputs.length; f++) {
             fareInputs[f].addEventListener("change", function (e) {
-                preview(fareKey(e.target));
+                var input = e.target;
+
+                if (tmHub !== ""
+                    && input.getAttribute("data-hub") === tmHub
+                    && input.getAttribute("data-band") === "adult") {
+                    showTourManagerFare(input.getAttribute("data-date"), input.value);
+                }
+
+                preview(fareKey(input));
             });
         }
     }
@@ -880,5 +919,67 @@
                 form.hidden = !addHub.open;
             });
         }
+    }
+
+    // ---- Tour manager departure hub: required, said in the app's toast -----
+
+    /*
+        The dropdown is required, so the browser refuses Save cost build while
+        it is on "Choose hub…" - and would show its own bubble ("Please select
+        an item in the list."). The "invalid" event fires just before that
+        bubble; cancelling it keeps the save blocked but hides the bubble, and
+        the app's own toast (the same one the server sends after a save) says
+        it instead. The server still checks the hub as well.
+    */
+    var showToast = function (message) {
+        var old = document.getElementById("toast");
+        if (old) {
+            old.remove();
+        }
+
+        var toast = document.createElement("div");
+        toast.className = "toast";
+        toast.id = "toast";
+        toast.setAttribute("role", "status");
+        toast.setAttribute("aria-live", "polite");
+
+        var text = document.createElement("span");
+        text.className = "toast__text";
+        text.textContent = message;
+        toast.appendChild(text);
+
+        // The same cross as the server-rendered toast: site.js closes anything
+        // carrying data-dismiss="toast".
+        var close = document.createElement("button");
+        close.type = "button";
+        close.className = "toast__close";
+        close.setAttribute("aria-label", "Dismiss");
+        close.setAttribute("data-dismiss", "toast");
+        close.innerHTML =
+            '<svg class="icon icon--14" focusable="false" aria-hidden="true"><use href="#i-x" /></svg>';
+        toast.appendChild(close);
+
+        document.body.appendChild(toast);
+    };
+
+    var tmSelect = document.getElementById("tmhub");
+
+    if (tmSelect) {
+        var tmMessage = "Please select the departure hub the tour manager flies from.";
+
+        tmSelect.addEventListener("invalid", function (e) {
+            e.preventDefault();          // no browser bubble
+            showToast(tmMessage);
+            tmSelect.focus();
+        });
+
+        // Picking a hub answers the message, so it goes.
+        tmSelect.addEventListener("change", function () {
+            var toast = document.getElementById("toast");
+            if (toast && tmSelect.value !== ""
+                && toast.textContent.indexOf(tmMessage) !== -1) {
+                toast.remove();
+            }
+        });
     }
 })();

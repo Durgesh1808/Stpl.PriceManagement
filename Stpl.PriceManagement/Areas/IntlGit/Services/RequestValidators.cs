@@ -41,6 +41,11 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Services
             if (x.SharedCost.HasValue && x.SharedCost.Value < 0)
                 e.Add("SharedCost", "The shared cost cannot be negative.");
 
+            // Mandatory: the tour manager's seat in every price is read from
+            // this hub's Adult + TM fare, date by date.
+            if (string.IsNullOrWhiteSpace(x.TourManagerHub))
+                e.Add("TourManagerHub", "Choose the departure hub the tour manager flies from.");
+
             e.MaxLength("Note", x.Note, 1000, "That note is too long — keep it under 1,000 characters.");
 
             // Every occupancy must still be PRESENT - the row is what carries "this one is blank".

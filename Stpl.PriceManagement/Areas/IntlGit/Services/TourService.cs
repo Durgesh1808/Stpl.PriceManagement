@@ -535,6 +535,37 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Services
                           .ToList(),
                     StringComparer.OrdinalIgnoreCase);
 
+            /*
+                The tour manager's ticket on each departure, for the screen to
+                show. The PRICE does not come from here - fn_PriceMatrix works it
+                out by the same rule (the tour manager hub's Adult + TM fare on
+                the same date) - this only lets the grid say which figure that
+                is, and why a price is missing when it is.
+
+                No tour manager hub chosen yet: the old rule, each departure's
+                own adult fare.
+            */
+            var tmHub = header.TmHubCode;
+            List<DepartureResponse> tmDepartures;
+            var tmByDate = !string.IsNullOrEmpty(tmHub) && departuresByHub.TryGetValue(tmHub, out tmDepartures)
+                ? tmDepartures.ToDictionary(d => d.Date.Date, d => AdultFare(d))
+                : new Dictionary<DateTime, decimal?>();
+
+            foreach (var departure in departuresByHub.Values.SelectMany(list => list))
+            {
+                if (string.IsNullOrEmpty(tmHub))
+                {
+                    departure.HasTourManagerDeparture = true;
+                    departure.TourManagerFare = AdultFare(departure);
+                }
+                else
+                {
+                    decimal? tmFare;
+                    departure.HasTourManagerDeparture = tmByDate.TryGetValue(departure.Date.Date, out tmFare);
+                    departure.TourManagerFare = tmFare;
+                }
+            }
+
             return new TourRevisionResponse
             {
                 Code = header.Code,
@@ -555,6 +586,8 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Services
                     PaxSlab = header.PaxSlab,
                     SharedCost = header.SharedCost,
                     Note = header.Note,
+                    TourManagerHub = header.TmHubCode,
+                    TourManagerHubName = header.TmHubName,
                     Occupancies = data.Costs.Select(cost => new OccupancyCostResponse
                     {
                         Occupancy = cost.OccupancyCode,
@@ -574,6 +607,8 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Services
                     ActiveDepartures = hub.DepartureCount,
                     IsNewHub = hub.IsNewHub,
                     HasPassengerAirfare = hub.HasPassengerAirfare,
+                    IsTourManagerHub = !string.IsNullOrEmpty(tmHub)
+                        && string.Equals(hub.HubCode, tmHub, StringComparison.OrdinalIgnoreCase),
                     Departures = departuresByHub.ContainsKey(hub.HubCode)
                         ? departuresByHub[hub.HubCode]
                         : new List<DepartureResponse>()
@@ -600,6 +635,16 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Services
                     IsQueried = price.IsQueried
                 }).ToList()
             };
+        }
+
+
+        /// <summary>The departure's Adult + TM fare, or null when there is none.</summary>
+        private static decimal? AdultFare(DepartureResponse departure)
+        {
+            decimal? amount;
+            return departure.Fares != null && departure.Fares.TryGetValue("adult", out amount)
+                ? amount
+                : null;
         }
 
 
@@ -760,6 +805,9 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Services
                 PaxSlab = request.PaxSlab,
                 SharedCost = request.SharedCost,
                 Note = request.Note,
+                TmHubCode = string.IsNullOrWhiteSpace(request.TourManagerHub)
+                    ? null
+                    : request.TourManagerHub.Trim().ToLowerInvariant(),
                 Costs = request.Occupancies.Select(o => new OccupancyCostEntry
                 {
                     OccupancyCode = o.Occupancy,

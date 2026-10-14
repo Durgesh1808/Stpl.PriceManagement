@@ -301,6 +301,9 @@ namespace Stpl.PriceManagement.Areas.IntlGit.ViewModels
            back as 0, and a nought prices the tour. */
         public decimal? SharedCost { get; set; }
         public string Note { get; set; }
+
+        /// <summary>The hub the tour manager departs from (hub code). Required.</summary>
+        public string TourManagerHub { get; set; }
         public Dictionary<string, decimal?> Land { get; set; }
         public Dictionary<string, decimal?> PerPerson { get; set; }
     }

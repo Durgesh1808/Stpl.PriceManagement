@@ -104,6 +104,14 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Models
         /// <summary>Null when nobody has entered one yet — see LandCostFx.</summary>
         public decimal? SharedCost { get; set; }
         public string Note { get; set; }
+
+        /// <summary>
+        /// The hub the tour manager departs from (hub code). Null on a tour
+        /// whose cost build has not been saved with one yet - that tour still
+        /// prices the tour manager's seat from each departure's own adult fare.
+        /// </summary>
+        public string TourManagerHub { get; set; }
+        public string TourManagerHubName { get; set; }
         public List<OccupancyCostResponse> Occupancies { get; set; }
     }
 
@@ -156,6 +164,12 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Models
         /// </remarks>
         public bool HasPassengerAirfare { get; set; }
 
+        /// <summary>
+        /// The hub the tour manager departs from. Its Adult + TM fare is the
+        /// tour manager's seat on every hub's departure of the same date.
+        /// </summary>
+        public bool IsTourManagerHub { get; set; }
+
         public List<DepartureResponse> Departures { get; set; }
     }
 
@@ -188,6 +202,19 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Models
         /// until somebody writes something.
         /// </summary>
         public string FlightDetails { get; set; }
+
+        /// <summary>
+        /// The tour manager's ticket this departure is priced with: the Adult +
+        /// TM fare of the tour manager's hub on the same date. Null when that
+        /// hub has no departure on this date, or no fare entered for it.
+        /// </summary>
+        public decimal? TourManagerFare { get; set; }
+
+        /// <summary>
+        /// False when the tour manager's hub has no departure on this date at
+        /// all - then there is nowhere to enter the fare until one is added.
+        /// </summary>
+        public bool HasTourManagerDeparture { get; set; }
     }
 
     public sealed class PriceCellResponse

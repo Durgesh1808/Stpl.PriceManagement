@@ -71,6 +71,8 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Domain
                         return "Launch pax slab";
                     case "shared":
                         return "Shared cost";
+                    case "tmhub":
+                        return "Tour manager departure hub";
                 }
 
                 // "land:twin" and "perperson:twin" carry the occupancy after the colon.
