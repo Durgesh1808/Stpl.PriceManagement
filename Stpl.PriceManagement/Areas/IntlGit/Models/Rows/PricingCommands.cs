@@ -17,6 +17,9 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Models.Rows
         /// <summary>Null when nobody has entered one. Not zero.</summary>
         public decimal? SharedCost { get; set; }
         public string Note { get; set; }
+
+        /// <summary>The hub the tour manager departs from (hub code).</summary>
+        public string TmHubCode { get; set; }
         public IReadOnlyList<OccupancyCostEntry> Costs { get; set; }
     }
 

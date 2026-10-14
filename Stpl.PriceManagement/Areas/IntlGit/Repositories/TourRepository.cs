@@ -366,6 +366,7 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Repositories
                 p.Value("PaxSlab", command.PaxSlab);
                 p.Value("SharedCost", command.SharedCost);
                 p.Value("Note", command.Note);
+                p.Value("TmHubCode", command.TmHubCode);
                 p.Table("Costs", "intlgit.OccupancyCostList", costs);
                 AddActor(p, actor);
                 AddGuard(p, expectedModifiedUtc);

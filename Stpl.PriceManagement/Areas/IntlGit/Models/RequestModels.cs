@@ -18,6 +18,12 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Models
         /// </summary>
         public decimal? SharedCost { get; set; }
         public string Note { get; set; }
+
+        /// <summary>
+        /// The hub the tour manager departs from. Required: its Adult + TM
+        /// fare, by date, is the tour manager's seat in every hub's price.
+        /// </summary>
+        public string TourManagerHub { get; set; }
         public List<OccupancyCostRequest> Occupancies { get; set; }
 
         /// <summary>The tour as the page saw it. Null skips the check.</summary>

@@ -16,6 +16,11 @@
     // Prices indexed for lookup while drawing the grid.
     var priceIndex = revision.Prices.ToDictionary(
         p => p.Hub + "|" + p.Date.ToString("yyyy-MM-dd") + "|" + p.Occupancy);
+
+    // The hub the tour manager departs from. Once chosen, the tour manager's
+    // seat on every hub is that hub's Adult + TM fare on the same date.
+    var tmChosen = !string.IsNullOrEmpty(cost.TourManagerHub);
+    var tmHubName = tmChosen ? cost.TourManagerHubName : null;
 }
 
 @{
@@ -364,7 +369,43 @@
                             <span>@Inr.Format(cost.SharedCost)</span>
                         }
                     </div>
-                    <div class="statcard__note">Tour Manager air added separately</div>
+                    @* The tour manager's departure hub. Mandatory: the tour
+                       manager's seat in EVERY hub's price is that hub's
+                       Adult + TM fare on the same date. Choosing a hub that is
+                       not on the tour adds it (with no dates) on save. Only
+                       hubs with a flight - Joining / Leaving has no fare. *@
+                    <div class="statcard__note statcard__tm">
+                        <label for="tmhub" class="statcard__tm-label">Tour manager departs from</label>
+                        @if (permissions.CanEditCostBuild)
+                        {
+                            <select class="field field--edit field--tmhub" name="TourManagerHub" id="tmhub"
+                                    required aria-required="true"
+                                    title="The tour manager's Adult + TM fare on this hub, on each date, is the tour manager's seat in every hub's price on that date.">
+                                <option value="">Choose hub…</option>
+                                @foreach (var option in Model.HubMaster.Where(h => h.HasPassengerAirfare))
+                                {
+                                    var onTour = revision.Hubs.Any(h => string.Equals(h.Hub, option.Hub, StringComparison.OrdinalIgnoreCase));
+                                    var optionText = option.Name + (onTour ? "" : " (will be added)");
+                                    if (string.Equals(option.Hub, cost.TourManagerHub, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <option value="@option.Hub" selected>@optionText</option>
+                                    }
+                                    else
+                                    {
+                                        <option value="@option.Hub">@optionText</option>
+                                    }
+                                }
+                            </select>
+                        }
+                        else if (!string.IsNullOrEmpty(cost.TourManagerHub))
+                        {
+                            <span class="statcard__tm-value">@cost.TourManagerHubName</span>
+                        }
+                        else
+                        {
+                            <span class="statcard__tm-value statcard__tm-value--unset">not chosen</span>
+                        }
+                    </div>
                 </div>
             </div>
         </div>
@@ -613,6 +654,11 @@
                         <span class="chip chip--info"
                               title="Customers join the tour at the destination. Land costs and a share of the tour manager's seat only — no passenger airfare.">Land only</span>
                     }
+                    @if (hub.IsTourManagerHub)
+                    {
+                        <span class="chip chip--tm"
+                              title="The tour manager departs from this hub. Its Adult + TM fare on each date is the tour manager's seat in every hub's price on that date.">Tour manager hub</span>
+                    }
                 </a>
 
                 @* Markup only. Withdrawing a hub used to sit right beside this
@@ -810,9 +856,14 @@
                    once because they have to agree: the adult heading is not
                    always "Adult + TM", and a cell captioned differently from
                    the column above it is worse than no caption at all. *@
+                @* With a tour manager hub chosen, only THAT hub's adult fare
+                   is "Adult + TM"; on the other hubs the adult box is the
+                   passenger's own fare, and the tour manager's seat is read
+                   from the tour manager hub. *@
+                var adultIsPassengerOnly = tmChosen && hub.HasPassengerAirfare && !hub.IsTourManagerHub;
                 var bandLabels = new Dictionary<string, string>
                 {
-                    { "adult", hub.HasPassengerAirfare ? "Adult + TM" : "Tour manager" },
+                    { "adult", !hub.HasPassengerAirfare ? "Tour manager" : adultIsPassengerOnly ? "Adult" : "Adult + TM" },
                     { "child", "Child" },
                     { "infant", "Infant" }
                 };
@@ -843,9 +894,15 @@
                                    "Adult + TM" there would name a passenger fare that
                                    does not exist. *@
                                 <div class="col-label col-label--r col-label--fare"
-                                     title="@(hub.HasPassengerAirfare
-                                         ? "The passenger's own fare, plus the tour manager's seat shared across the launch pax slab."
-                                         : "The tour manager's ticket, shared across the launch pax slab. Customers on this hub join at the destination, so no passenger airfare enters the price.")">
+                                     title="@(!hub.HasPassengerAirfare
+                                         ? (tmChosen
+                                             ? "The tour manager's ticket - read from " + tmHubName + "'s Adult + TM fare on the same date, shared across the launch pax slab. Customers on this hub join at the destination, so no passenger airfare enters the price."
+                                             : "The tour manager's ticket, shared across the launch pax slab. Customers on this hub join at the destination, so no passenger airfare enters the price.")
+                                         : adultIsPassengerOnly
+                                             ? "The passenger's own fare. The tour manager's seat is read from " + tmHubName + "'s Adult + TM fare on the same date, shared across the launch pax slab."
+                                             : hub.IsTourManagerHub
+                                                 ? "The passenger's own fare, and the tour manager's ticket: this figure on each date is the tour manager's seat in every hub's price on that date."
+                                                 : "The passenger's own fare, plus the tour manager's seat shared across the launch pax slab.")">
                                     @bandLabels["adult"]
                                 </div>
                                 <div class="col-label col-label--r col-label--fare">@bandLabels["child"]</div>
@@ -1074,6 +1131,11 @@
                                            row is created for them either. *@
                                         var bandDead = !hub.HasPassengerAirfare && band != "adult";
 
+                                        @* Joining / Leaving with a tour manager hub chosen: its one
+                                           figure, the tour manager's ticket, is READ from that hub's
+                                           Adult + TM fare on this date. Shown, not typed. *@
+                                        var tmAuto = tmChosen && !hub.HasPassengerAirfare && band == "adult";
+
                                         @* data-group appears on the first cell of each group only,
                                            and is what the phone layout draws its section headings
                                            from. On a wide screen the two .col-group captions above
@@ -1088,7 +1150,27 @@
                                             {
                                                 <span class="dot" aria-hidden="true"></span>
                                             }
-                                            @if (bandDead)
+                                            @if (tmAuto)
+                                            {
+                                                <span class="faregrid__tmfare @(departure.TourManagerFare.HasValue ? "" : "faregrid__tmfare--missing")"
+                                                      data-tm-date="@key"
+                                                      title="Tour manager's ticket, read from @tmHubName's Adult + TM fare on this date">
+                                                    @if (departure.TourManagerFare.HasValue)
+                                                    {
+                                                        <span class="num">@Inr.Format(departure.TourManagerFare.Value)</span>
+                                                    }
+                                                    else if (departure.HasTourManagerDeparture)
+                                                    {
+                                                        @:awaiting @tmHubName fare
+                                                    }
+                                                    else
+                                                    {
+                                                        @:no @tmHubName departure
+                                                    }
+                                                </span>
+                                                <span class="faregrid__tmsource">from @tmHubName</span>
+                                            }
+                                            else if (bandDead)
                                             {
                                                 @* Text, not a disabled box. A greyed input invites
                                                    clicking; greyed words say there is nothing here.
@@ -1132,6 +1214,22 @@
                                                     <b>@Inr.Format(amount.Value)</b>
                                                 </span>
                                             }
+
+                                            @* On a hub that is not the tour manager's, which tour
+                                               manager fare this date's prices carry - read from the
+                                               tour manager hub, not typed here. *@
+                                            @if (band == "adult" && adultIsPassengerOnly)
+                                            {
+                                                <span class="faregrid__tmline @(departure.TourManagerFare.HasValue ? "" : "faregrid__tmline--missing")"
+                                                      data-tm-line="@key"
+                                                      title="Tour manager's seat on this date: @tmHubName's Adult + TM fare">
+                                                    @(departure.TourManagerFare.HasValue
+                                                        ? "TM " + Inr.Format(departure.TourManagerFare.Value) + " · " + tmHubName
+                                                        : (departure.HasTourManagerDeparture
+                                                            ? "TM fare awaited · " + tmHubName
+                                                            : "no " + tmHubName + " departure"))
+                                                </span>
+                                            }
                                         </div>
                                     }
 
@@ -1161,8 +1259,26 @@
                                             @if (cell == null || !cell.HasFare)
                                             {
                                                 @* No airfare, so there is no price. Saying so is better
-                                                   than showing a figure built on a fare nobody entered. *@
-                                                <span class="faregrid__awaiting">awaiting airfare</span>
+                                                   than showing a figure built on a fare nobody entered.
+
+                                                   When what is missing is the TOUR MANAGER's fare - this
+                                                   date has no Adult + TM fare on the tour manager hub - it
+                                                   says that instead: the fix is on another hub's row. *@
+                                                var ownAdultIn = departure.Fares != null && departure.Fares.ContainsKey("adult")
+                                                                 && departure.Fares["adult"].HasValue;
+                                                var tmMissing = tmChosen && !departure.TourManagerFare.HasValue
+                                                                && (!hub.HasPassengerAirfare || ownAdultIn);
+                                                if (tmMissing)
+                                                {
+                                                    <span class="faregrid__awaiting"
+                                                          title="@(departure.HasTourManagerDeparture
+                                                                   ? "Enter the Adult + TM fare for this date on " + tmHubName + " — the tour manager departs from there."
+                                                                   : "Add this date on " + tmHubName + " and enter its Adult + TM fare — the tour manager departs from there.")">awaiting TM fare</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="faregrid__awaiting">awaiting airfare</span>
+                                                }
                                             }
                                             else if (!cell.Calculated.HasValue)
                                             {
@@ -1284,8 +1400,12 @@
                                            A <details> rather than a dialog: it works with the
                                            script blocked, and the popover is positioned out of
                                            the row so it cannot stretch it. *@
+                                        @* Not on Joining / Leaving once a tour manager hub is
+                                           chosen: it has no fare of its own to send back - its
+                                           tour manager fare is queried on that hub's row. *@
                                         @if (Me.IsProductExecutive && permissions.IsEditing
-                                             && departure.IsActive && hub.IsActive && !isHeld)
+                                             && departure.IsActive && hub.IsActive && !isHeld
+                                             && (hub.HasPassengerAirfare || !tmChosen))
                                         {
                                             <details class="rowmenu queryform">
                                                 <summary class="iconbtn iconbtn--query"
@@ -1316,7 +1436,7 @@
                                                             @if (hub.HasPassengerAirfare)
                                                             {
                                                                 <option value="">All three</option>
-                                                                <option value="adult">Adult + TM</option>
+                                                                <option value="adult">@bandLabels["adult"]</option>
                                                                 <option value="child">Child</option>
                                                                 <option value="infant">Infant</option>
                                                             }
@@ -1918,6 +2038,8 @@
        them - both are decisions this page already made. *@
     <script src="~/intlgit/js/workspace.js" asp-append-version="true"
             data-preview-url="@Model.PreviewUrl"
+            data-tm-hub="@(revision.CostBuild.TourManagerHub ?? "")"
+            data-tm-hub-name="@(revision.CostBuild.TourManagerHubName ?? "")"
             data-page-path="/IntlGit/Revision"
             data-price-editable="@(Model.Permissions.CanEditPublishedPrice ? "true" : "false")"></script>
 }

@@ -70,6 +70,10 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Models.Rows
         public decimal? SharedCost { get; set; }
         public string Note { get; set; }
         public DateTime? SavedUtc { get; set; }
+
+        /// <summary>The hub the tour manager flies from. Null until chosen.</summary>
+        public string TmHubCode { get; set; }
+        public string TmHubName { get; set; }
         public DateTime? FareSubmittedUtc { get; set; }
         public string FareSubmittedBy { get; set; }
         public string FareNote { get; set; }

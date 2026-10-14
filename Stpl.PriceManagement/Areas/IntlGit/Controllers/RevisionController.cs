@@ -220,6 +220,7 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Controllers
                 PaxSlab = form.PaxSlab,
                 SharedCost = form.SharedCost,
                 Note = form.Note,
+                TourManagerHub = form.TourManagerHub,
                 Occupancies = current.CostBuild.Occupancies.Select(o => new OccupancyCostRequest
                 {
                     Occupancy = o.Occupancy,
@@ -229,9 +230,26 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Controllers
             };
 
             var result = await _tours.SaveCostBuildAsync(vm.Code, request, cancellationToken);
-            TempData["Toast"] = result.Succeeded
-                ? "Cost build saved. Prices below have been recalculated."
-                : result.Message;
+
+            /* The tour manager's hub is added to the tour by the save when it was
+               not on it - with no dates. Say so, and open it, because the next
+               thing to do is add its dates and Adult + TM fares there. */
+            var tmHub = (form.TourManagerHub ?? string.Empty).Trim();
+            var tmHubAdded = result.Succeeded && tmHub.Length > 0
+                && !current.Hubs.Any(h => string.Equals(h.Hub, tmHub, StringComparison.OrdinalIgnoreCase));
+
+            TempData["Toast"] = !result.Succeeded
+                ? result.Message
+                : tmHubAdded
+                    ? "Cost build saved. The tour manager's departure hub was added to this tour — "
+                        + "add its departure dates and Adult + TM fares; every hub's tour manager fare is read from them."
+                    : "Cost build saved. Prices below have been recalculated.";
+
+            if (tmHubAdded)
+            {
+                return Redirect(vm.Self(vm.AppendOpen(tmHub.ToLowerInvariant()), edit: true,
+                    anchor: "hub-" + tmHub.ToLowerInvariant()));
+            }
 
             // A successful save leaves edit mode, so the screen shows what was
             // actually stored rather than the boxes it was typed into. A failed
@@ -966,6 +984,11 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Controllers
                 current.Hubs.Where(h => !h.HasPassengerAirfare).Select(h => h.Hub),
                 StringComparer.OrdinalIgnoreCase);
 
+            /* With a tour manager hub chosen, a land-only hub has no fare of its
+               own at all: its tour manager fare is read from that hub, by date,
+               and the grid shows it as text. Any key for it is dropped. */
+            var tourManagerHubChosen = !string.IsNullOrEmpty(current.CostBuild.TourManagerHub);
+
             foreach (var entry in form.Fare)
             {
                 string hub, band;
@@ -978,7 +1001,8 @@ namespace Stpl.PriceManagement.Areas.IntlGit.Controllers
                 // Dropped rather than refused, like an unparseable amount below:
                 // one stray key must not fail the save of a whole grid.
                 if (landOnly.Contains(hub)
-                    && !string.Equals(band, "adult", StringComparison.OrdinalIgnoreCase))
+                    && (tourManagerHubChosen
+                        || !string.Equals(band, "adult", StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
